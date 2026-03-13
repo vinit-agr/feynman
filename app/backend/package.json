@@ -6,6 +6,7 @@
     "deploy": "npx convex deploy"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
     "convex": "^1.21.0"
   }
 }

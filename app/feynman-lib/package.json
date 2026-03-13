@@ -1,0 +1,19 @@
+{
+  "name": "@feynman/lib",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ingest:claude": "tsx scripts/ingest-claude-transcripts.ts",
+    "ingest:git": "tsx scripts/ingest-git-history.ts",
+    "digest:generate": "tsx scripts/generate-digest.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "convex": "^1.21.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

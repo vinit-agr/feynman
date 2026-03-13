@@ -113,4 +113,22 @@ export default defineSchema({
     enabled: v.boolean(),
   })
     .index("by_type", ["type"]),
+
+  // Runtime configuration for scheduled jobs (visibility + control layer)
+  cronConfig: defineTable({
+    name: v.string(),           // Unique cron identifier, e.g. "weekly-digest"
+    description: v.string(),    // Human-readable, e.g. "Generate weekly digest"
+    schedule: v.string(),       // Human-readable schedule, e.g. "Every Friday at 23:00 UTC"
+    functionName: v.string(),   // Convex function reference, e.g. "digestAction:generateWeekly"
+    enabled: v.boolean(),       // Toggle — cron function checks this before running
+    lastRunAt: v.optional(v.number()),
+    lastStatus: v.optional(v.union(
+      v.literal("success"),
+      v.literal("error"),
+      v.literal("skipped")
+    )),
+    lastError: v.optional(v.string()),
+    runCount: v.number(),
+  })
+    .index("by_name", ["name"]),
 });

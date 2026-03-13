@@ -5,10 +5,12 @@
  * and pushes them as knowledge entries to Convex.
  *
  * Usage:
- *   CONVEX_URL=<url> tsx scripts/ingest-claude-transcripts.ts
- *   CONVEX_URL=<url> npm run ingest:claude
+ *   npm run ingest:claude
+ *
+ * Requires CONVEX_URL in app/feynman-lib/.env
  */
 
+import "./shared/env.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";

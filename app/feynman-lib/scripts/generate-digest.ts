@@ -5,10 +5,13 @@
  * generate a structured weekly digest, and stores the result back in Convex.
  *
  * Usage:
- *   CONVEX_URL=<url> ANTHROPIC_API_KEY=<key> tsx scripts/generate-digest.ts [days]
- *   CONVEX_URL=<url> ANTHROPIC_API_KEY=<key> npm run digest:generate
+ *   npm run digest:generate
+ *   npm run digest:generate -- 14    # custom days back
+ *
+ * Requires CONVEX_URL and ANTHROPIC_API_KEY in app/feynman-lib/.env
  */
 
+import "./shared/env.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { createConvexClient } from "./shared/convex-client.js";
 import type { DigestInput, KnowledgeEntryInput } from "./shared/types.js";

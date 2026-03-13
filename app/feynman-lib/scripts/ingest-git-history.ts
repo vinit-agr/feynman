@@ -5,10 +5,13 @@
  * as knowledge entries to Convex.
  *
  * Usage:
- *   CONVEX_URL=<url> tsx scripts/ingest-git-history.ts ~/repo1 ~/repo2
- *   CONVEX_URL=<url> tsx scripts/ingest-git-history.ts --since="60 days ago" ~/repo1
+ *   npm run ingest:git -- ~/repo1 ~/repo2
+ *   npm run ingest:git -- --since="60 days ago" ~/repo1
+ *
+ * Requires CONVEX_URL in app/feynman-lib/.env
  */
 
+import "./shared/env.js";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { execSync } from "node:child_process";

@@ -1,0 +1,11 @@
+{
+  "name": "@feynman/backend",
+  "private": true,
+  "scripts": {
+    "dev": "npx convex dev",
+    "deploy": "npx convex deploy"
+  },
+  "dependencies": {
+    "convex": "^1.21.0"
+  }
+}

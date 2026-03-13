@@ -124,6 +124,9 @@ feynman/
 │   │       ├── contentPipeline.ts
 │   │       ├── knowledgePipeline.ts
 │   │       ├── digests.ts
+│   │       ├── cronConfig.ts
+│   │       ├── digestAction.ts
+│   │       ├── crons.ts
 │   │       └── search.ts
 │   ├── feynman-lib/
 │   │   └── scripts/             # Pure TypeScript ingestion & utility scripts
@@ -142,7 +145,8 @@ feynman/
 │           │   ├── dashboard/   # Weekly digest view
 │           │   ├── content/     # Content creation pipeline (kanban)
 │           │   ├── knowledge/   # Knowledge curation pipeline (kanban)
-│           │   └── search/      # Search across knowledge base
+│           │   ├── search/      # Search across knowledge base
+│           │   └── settings/    # Scheduled jobs visibility & control
 │           └── components/
 ├── content/                     # Content artifacts (scripts, outlines, drafts)
 │   ├── talking-head/
@@ -178,6 +182,9 @@ feynman/
 
 - **`sources`** — Registered knowledge sources
   - type, last ingested timestamp, config
+
+- **`cronConfig`** — Runtime configuration for scheduled jobs (visibility + control layer)
+  - name, description, schedule (human-readable), enabled (toggle), lastRunAt, lastStatus, lastError, runCount
 
 ### Shared KnowledgeEntry Type
 
@@ -234,6 +241,7 @@ type KnowledgeEntry = {
 | Digest cadence | Weekly (Friday/Saturday) | Covers full work week, on-demand as nice-to-have |
 | Pipeline auto-population | Ideas stage only, user controls rest | System suggests but doesn't move things autonomously |
 | Two pipelines | Knowledge Curation + Content Creation | Not all learning needs to become content, but content should come from real knowledge |
+| Cron visibility | "Soft cron" with cronConfig table | Convex crons are code-defined and auto-start on deploy — wrapping with a DB config layer gives frontend toggle/visibility without redeploying |
 
 ---
 
@@ -266,6 +274,11 @@ type KnowledgeEntry = {
 - Results show: source icon, title, snippet, date, tags
 - Click to expand full content
 - Filter by source type, date range, tags
+
+#### 5. Settings — Scheduled Jobs
+- Lists all cron/scheduled jobs with full visibility: name, schedule, enabled/disabled, last run time, last status, error details, run count
+- Toggle switch to enable/disable each job at runtime (without redeploying code)
+- How it works: Convex `crons.ts` fires on schedule, but each cron function checks a `cronConfig` table first — if `enabled === false`, it exits immediately. This gives full runtime control from the frontend while keeping cron definitions in code.
 
 ### Design Direction
 - Clean, minimal, functional — Linear/Notion aesthetics

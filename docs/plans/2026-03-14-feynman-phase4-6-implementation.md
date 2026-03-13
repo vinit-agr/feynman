@@ -1627,18 +1627,152 @@ git commit -m "feat: add search page with debounced full-text search"
 
 ---
 
-## Phase 6: Scheduled Digest Automation
+## Phase 6: Scheduled Digest Automation (with Cron Visibility)
 
-### Task 15: Create Convex action for digest generation
+### Task 15: Add cronConfig table and CRUD functions
+
+**Context:** Convex crons are code-defined in `crons.ts` and auto-start on deploy. To give the user runtime visibility and enable/disable control from the frontend, we add a `cronConfig` table. Each cron function checks this table first — if `enabled === false`, it exits immediately (logs "skipped").
+
+**Files:**
+- Modify: `app/backend/convex/schema.ts` (add `cronConfig` table)
+- Create: `app/backend/convex/cronConfig.ts` (CRUD functions)
+
+**Step 1: Add cronConfig table to schema.ts**
+
+Add to the existing schema:
+
+```typescript
+// Runtime configuration for scheduled jobs (visibility + control layer)
+cronConfig: defineTable({
+  name: v.string(),           // Unique cron identifier, e.g. "weekly-digest"
+  description: v.string(),    // Human-readable, e.g. "Generate weekly digest"
+  schedule: v.string(),       // Human-readable schedule, e.g. "Every Friday at 23:00 UTC"
+  functionName: v.string(),   // Convex function reference, e.g. "digestAction:generateWeekly"
+  enabled: v.boolean(),       // Toggle — cron function checks this before running
+  lastRunAt: v.optional(v.number()),
+  lastStatus: v.optional(v.union(
+    v.literal("success"),
+    v.literal("error"),
+    v.literal("skipped")
+  )),
+  lastError: v.optional(v.string()),
+  runCount: v.number(),
+})
+  .index("by_name", ["name"]),
+```
+
+**Step 2: Create app/backend/convex/cronConfig.ts**
+
+```typescript
+import { query, mutation, internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+
+// List all cron configs (for the frontend settings page)
+export const list = query({
+  args: {},
+  returns: v.array(v.any()),
+  handler: async (ctx) => {
+    return await ctx.db.query("cronConfig").collect();
+  },
+});
+
+// Get a specific cron config by name (used by cron functions to check if enabled)
+export const getByName = query({
+  args: { name: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("cronConfig")
+      .withIndex("by_name", (q) => q.eq("name", args.name))
+      .first();
+  },
+});
+
+// Toggle enabled/disabled (called from frontend)
+export const setEnabled = mutation({
+  args: { name: v.string(), enabled: v.boolean() },
+  handler: async (ctx, args) => {
+    const config = await ctx.db
+      .query("cronConfig")
+      .withIndex("by_name", (q) => q.eq("name", args.name))
+      .first();
+    if (!config) throw new Error(`Cron config not found: ${args.name}`);
+    await ctx.db.patch(config._id, { enabled: args.enabled });
+  },
+});
+
+// Record a cron run result (called by cron functions after execution)
+export const recordRun = internalMutation({
+  args: {
+    name: v.string(),
+    status: v.union(v.literal("success"), v.literal("error"), v.literal("skipped")),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const config = await ctx.db
+      .query("cronConfig")
+      .withIndex("by_name", (q) => q.eq("name", args.name))
+      .first();
+    if (!config) return;
+    await ctx.db.patch(config._id, {
+      lastRunAt: Date.now(),
+      lastStatus: args.status,
+      lastError: args.error,
+      runCount: config.runCount + (args.status !== "skipped" ? 1 : 0),
+    });
+  },
+});
+
+// Seed initial cron config (run once during setup or on first deploy)
+export const seed = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db
+      .query("cronConfig")
+      .withIndex("by_name", (q) => q.eq("name", "weekly-digest"))
+      .first();
+    if (existing) return "already seeded";
+
+    await ctx.db.insert("cronConfig", {
+      name: "weekly-digest",
+      description: "Generate weekly digest summarizing knowledge activity",
+      schedule: "Every Friday at 23:00 UTC (~6 PM ET)",
+      functionName: "digestAction:generateWeekly",
+      enabled: true,
+      runCount: 0,
+    });
+    return "seeded";
+  },
+});
+```
+
+**Step 3: Deploy and verify**
+
+```bash
+cd app/backend && npx convex dev --once
+```
+
+**Step 4: Seed the initial cron config**
+
+Run the seed function from the Convex dashboard, or add a one-time call.
+
+**Step 5: Commit**
+
+```bash
+git add app/backend/convex/schema.ts app/backend/convex/cronConfig.ts
+git commit -m "feat: add cronConfig table for runtime cron visibility and control"
+```
+
+---
+
+### Task 16: Create Convex action for digest generation (with cronConfig check)
 
 **Files:**
 - Create: `app/backend/convex/digestAction.ts`
 
-This moves the digest generation logic into a Convex action so it can be triggered by cron or manually from the dashboard.
+This moves the digest generation logic into a Convex action. When called from a cron, it checks `cronConfig` first — if disabled, it records a "skipped" status and exits. When called manually (from the dashboard "Generate Now" button), it bypasses the check via a `manual` flag.
 
 **Step 1: Install Anthropic SDK in the backend**
-
-The backend package needs `@anthropic-ai/sdk` to call Claude from within Convex actions.
 
 ```bash
 cd app/backend && npm install @anthropic-ai/sdk
@@ -1651,12 +1785,13 @@ cd app/backend && npm install @anthropic-ai/sdk
 
 import { action } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import Anthropic from "@anthropic-ai/sdk";
 
 const DEFAULT_DAYS_BACK = 7;
 const MAX_CONTENT_PER_ENTRY = 2000;
 const MAX_ENTRIES_PER_SOURCE = 50;
+const CRON_NAME = "weekly-digest";
 
 function buildSystemPrompt(): string {
   return `You are a personal content strategist and knowledge synthesizer for a builder who creates authentic content based on their real work.
@@ -1683,126 +1818,144 @@ Respond with ONLY a valid JSON object (no markdown code fences):
 export const generateWeekly = action({
   args: {
     daysBack: v.optional(v.number()),
+    manual: v.optional(v.boolean()),  // true when triggered from dashboard button
   },
   returns: v.string(),
   handler: async (ctx, args) => {
-    const daysBack = args.daysBack ?? DEFAULT_DAYS_BACK;
-    const since = Date.now() - daysBack * 24 * 60 * 60 * 1000;
+    const isManual = args.manual ?? false;
 
-    // Query recent entries
-    const entries: any[] = await ctx.runQuery(
-      internal.knowledgeEntries.getRecent,
-      { since }
-    );
-
-    if (entries.length === 0) {
-      return "No entries found for the specified period.";
-    }
-
-    // Group and format entries for prompt
-    const grouped: Record<string, any[]> = {};
-    for (const entry of entries) {
-      if (!grouped[entry.source]) grouped[entry.source] = [];
-      grouped[entry.source].push(entry);
-    }
-
-    let entriesText = "";
-    for (const [source, sourceEntries] of Object.entries(grouped)) {
-      const capped = sourceEntries.slice(0, MAX_ENTRIES_PER_SOURCE);
-      entriesText += `\n## Source: ${source} (${capped.length} entries)\n\n`;
-      for (const entry of capped) {
-        entriesText += `### ${entry.title}\n`;
-        const content = entry.content.length > MAX_CONTENT_PER_ENTRY
-          ? entry.content.slice(0, MAX_CONTENT_PER_ENTRY) + "..."
-          : entry.content;
-        entriesText += `${content}\n\n---\n\n`;
+    // Check cronConfig — skip if disabled (unless manually triggered)
+    if (!isManual) {
+      const config = await ctx.runQuery(api.cronConfig.getByName, { name: CRON_NAME });
+      if (config && !config.enabled) {
+        await ctx.runMutation(internal.cronConfig.recordRun, {
+          name: CRON_NAME,
+          status: "skipped",
+        });
+        return "Digest generation is disabled. Enable it in Settings → Scheduled Jobs.";
       }
     }
 
-    // Call Claude API
-    const anthropic = new Anthropic();
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: buildSystemPrompt(),
-      messages: [{
-        role: "user",
-        content: `Here are my knowledge entries from the past ${daysBack} days. Total: ${entries.length} entries.\n\n${entriesText}`,
-      }],
-    });
+    const daysBack = args.daysBack ?? DEFAULT_DAYS_BACK;
+    const since = Date.now() - daysBack * 24 * 60 * 60 * 1000;
 
-    const textBlock = response.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("No text response from Claude API");
-    }
-
-    // Parse JSON
-    let digest: any;
     try {
-      digest = JSON.parse(textBlock.text);
-    } catch {
-      const match = textBlock.text.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error("Failed to parse Claude response as JSON");
-      digest = JSON.parse(match[0]);
+      // Query recent entries
+      const entries: any[] = await ctx.runQuery(
+        api.knowledgeEntries.getRecent,
+        { since }
+      );
+
+      if (entries.length === 0) {
+        await ctx.runMutation(internal.cronConfig.recordRun, {
+          name: CRON_NAME,
+          status: "success",
+        });
+        return "No entries found for the specified period.";
+      }
+
+      // Group and format entries for prompt
+      const grouped: Record<string, any[]> = {};
+      for (const entry of entries) {
+        if (!grouped[entry.source]) grouped[entry.source] = [];
+        grouped[entry.source].push(entry);
+      }
+
+      let entriesText = "";
+      for (const [source, sourceEntries] of Object.entries(grouped)) {
+        const capped = sourceEntries.slice(0, MAX_ENTRIES_PER_SOURCE);
+        entriesText += `\n## Source: ${source} (${capped.length} entries)\n\n`;
+        for (const entry of capped) {
+          entriesText += `### ${entry.title}\n`;
+          const content = entry.content.length > MAX_CONTENT_PER_ENTRY
+            ? entry.content.slice(0, MAX_CONTENT_PER_ENTRY) + "..."
+            : entry.content;
+          entriesText += `${content}\n\n---\n\n`;
+        }
+      }
+
+      // Call Claude API
+      const anthropic = new Anthropic();
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: buildSystemPrompt(),
+        messages: [{
+          role: "user",
+          content: `Here are my knowledge entries from the past ${daysBack} days. Total: ${entries.length} entries.\n\n${entriesText}`,
+        }],
+      });
+
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        throw new Error("No text response from Claude API");
+      }
+
+      // Parse JSON
+      let digest: any;
+      try {
+        digest = JSON.parse(textBlock.text);
+      } catch {
+        const match = textBlock.text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("Failed to parse Claude response as JSON");
+        digest = JSON.parse(match[0]);
+      }
+
+      // Store digest
+      await ctx.runMutation(api.digests.create, {
+        startDate: since,
+        endDate: Date.now(),
+        activitySummary: digest.activitySummary,
+        keyThemes: digest.keyThemes,
+        contentIdeas: digest.contentIdeas,
+        knowledgeGaps: digest.knowledgeGaps || [],
+        notableSaves: digest.notableSaves || [],
+        rawMarkdown: digest.rawMarkdown,
+      });
+
+      // Record success
+      await ctx.runMutation(internal.cronConfig.recordRun, {
+        name: CRON_NAME,
+        status: "success",
+      });
+
+      return digest.rawMarkdown;
+    } catch (err) {
+      // Record error
+      await ctx.runMutation(internal.cronConfig.recordRun, {
+        name: CRON_NAME,
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
     }
-
-    // Store digest
-    await ctx.runMutation(internal.digests.create, {
-      startDate: since,
-      endDate: Date.now(),
-      activitySummary: digest.activitySummary,
-      keyThemes: digest.keyThemes,
-      contentIdeas: digest.contentIdeas,
-      knowledgeGaps: digest.knowledgeGaps || [],
-      notableSaves: digest.notableSaves || [],
-      rawMarkdown: digest.rawMarkdown,
-    });
-
-    return digest.rawMarkdown;
   },
 });
 ```
 
-**Step 3: Update knowledgeEntries.ts and digests.ts to export internal functions**
-
-The action above uses `internal.knowledgeEntries.getRecent` and `internal.digests.create`. These need to be exported as `internalQuery` / `internalMutation` (or the existing exports work if the action uses `api` instead of `internal`).
-
-Option: Change the action to use `ctx.runQuery(api.knowledgeEntries.getRecent, ...)` — this works with the existing public exports.
-
-Alternatively, add internal versions. The simplest approach: use the existing public functions via `api` imports instead of `internal`.
-
-Update the action to import `api` instead of `internal`:
-```typescript
-import { api } from "./_generated/api";
-```
-
-And use:
-```typescript
-const entries = await ctx.runQuery(api.knowledgeEntries.getRecent, { since });
-await ctx.runMutation(api.digests.create, { ... });
-```
-
-**Step 4: Verify the action compiles**
+**Step 3: Verify the action compiles**
 
 ```bash
 cd app/backend && npx convex dev --once
 ```
 
-**Step 5: Commit**
+**Step 4: Commit**
 
 ```bash
 git add -A
-git commit -m "feat: add Convex action for digest generation via Claude API"
+git commit -m "feat: add Convex action for digest generation with cronConfig check"
 ```
 
 ---
 
-### Task 16: Add Convex cron for weekly digest
+### Task 17: Add Convex cron for weekly digest
 
 **Files:**
 - Create: `app/backend/convex/crons.ts`
 
 **Step 1: Create app/backend/convex/crons.ts**
+
+The cron fires on schedule, but the action itself checks `cronConfig.enabled` — so the cron always fires, but the work only executes if the user has left it enabled.
 
 ```typescript
 import { cronJobs } from "convex/server";
@@ -1811,11 +1964,13 @@ import { api } from "./_generated/api";
 const crons = cronJobs();
 
 // Generate weekly digest every Friday at 23:00 UTC (~6 PM ET)
+// NOTE: The action checks cronConfig.enabled before doing actual work.
+// To disable, toggle in Settings → Scheduled Jobs (no redeploy needed).
 crons.weekly(
   "weekly-digest",
   { dayOfWeek: "friday", hourUTC: 23, minuteUTC: 0 },
   api.digestAction.generateWeekly,
-  {}
+  {}  // no manual flag → action will check cronConfig
 );
 
 export default crons;
@@ -1835,7 +1990,7 @@ cd app/backend && npx convex env set ANTHROPIC_API_KEY <your-key>
 cd app/backend && npx convex dev --once
 ```
 
-Check Convex dashboard — the cron should be visible.
+Check Convex dashboard — the cron should be visible in the Schedules tab.
 
 **Step 4: Commit**
 
@@ -1846,14 +2001,14 @@ git commit -m "feat: add weekly digest cron job (Friday 6 PM ET)"
 
 ---
 
-### Task 17: Add "Generate Digest" button to dashboard
+### Task 18: Add "Generate Digest" button to dashboard
 
 **Files:**
 - Modify: `app/frontend/src/app/(app)/dashboard/page.tsx`
 
 **Step 1: Add a quick action button to the dashboard**
 
-Add a "Generate Digest Now" button that calls the `digestAction.generateWeekly` action with a custom days parameter. Use `useMutation` (for actions: `useAction` from Convex React).
+Add a "Generate Digest Now" button that calls the `digestAction.generateWeekly` action with `manual: true` (bypasses cronConfig check). Use `useAction` from Convex React.
 
 ```tsx
 import { useAction } from "convex/react";
@@ -1866,7 +2021,7 @@ const [generating, setGenerating] = useState(false);
 async function handleGenerateDigest() {
   setGenerating(true);
   try {
-    await generateDigest({ daysBack: 7 });
+    await generateDigest({ daysBack: 7, manual: true });
   } finally {
     setGenerating(false);
   }
@@ -1898,6 +2053,191 @@ git commit -m "feat: add generate-digest-now button to dashboard"
 
 ---
 
+### Task 19: Build Settings — Scheduled Jobs page
+
+**Files:**
+- Create: `app/frontend/src/app/(app)/settings/page.tsx`
+- Create: `app/frontend/src/components/settings/cron-job-card.tsx`
+- Modify: `app/frontend/src/components/app-sidebar.tsx` (add Settings nav item)
+
+**Step 1: Add shadcn switch component**
+
+```bash
+cd app/frontend && npx shadcn@latest add switch
+```
+
+**Step 2: Create app/frontend/src/components/settings/cron-job-card.tsx**
+
+```tsx
+"use client";
+
+import { useMutation } from "convex/react";
+import { api } from "@backend/convex/_generated/api";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+
+interface CronJobCardProps {
+  config: {
+    _id: string;
+    name: string;
+    description: string;
+    schedule: string;
+    functionName: string;
+    enabled: boolean;
+    lastRunAt?: number;
+    lastStatus?: "success" | "error" | "skipped";
+    lastError?: string;
+    runCount: number;
+  };
+}
+
+const statusColors: Record<string, string> = {
+  success: "bg-green-500/10 text-green-500 border-green-500/20",
+  error: "bg-red-500/10 text-red-500 border-red-500/20",
+  skipped: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+};
+
+export function CronJobCard({ config }: CronJobCardProps) {
+  const setEnabled = useMutation(api.cronConfig.setEnabled);
+
+  async function handleToggle(checked: boolean) {
+    await setEnabled({ name: config.name, enabled: checked });
+  }
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">{config.description}</h3>
+          <p className="text-xs text-muted-foreground font-mono">{config.name}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {config.enabled ? "Enabled" : "Disabled"}
+          </span>
+          <Switch checked={config.enabled} onCheckedChange={handleToggle} />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <div>
+          <span className="font-medium">Schedule:</span> {config.schedule}
+        </div>
+        <div>
+          <span className="font-medium">Total runs:</span> {config.runCount}
+        </div>
+      </div>
+
+      {config.lastRunAt && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Last run:</span>
+          <span>{new Date(config.lastRunAt).toLocaleString()}</span>
+          {config.lastStatus && (
+            <Badge
+              variant="outline"
+              className={`text-[10px] ${statusColors[config.lastStatus] || ""}`}
+            >
+              {config.lastStatus}
+            </Badge>
+          )}
+        </div>
+      )}
+
+      {config.lastStatus === "error" && config.lastError && (
+        <div className="text-xs text-red-500 bg-red-500/5 rounded p-2 font-mono">
+          {config.lastError}
+        </div>
+      )}
+
+      {!config.lastRunAt && (
+        <p className="text-xs text-muted-foreground italic">
+          No runs yet
+        </p>
+      )}
+    </Card>
+  );
+}
+```
+
+**Step 3: Create app/frontend/src/app/(app)/settings/page.tsx**
+
+```tsx
+"use client";
+
+import { useQuery } from "convex/react";
+import { api } from "@backend/convex/_generated/api";
+import { CronJobCard } from "@/components/settings/cron-job-card";
+
+export default function SettingsPage() {
+  const cronConfigs = useQuery(api.cronConfig.list, {});
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Manage scheduled jobs and system configuration
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Scheduled Jobs</h2>
+        <p className="text-sm text-muted-foreground">
+          Toggle jobs on/off without redeploying. Disabled jobs will be skipped when their schedule fires.
+        </p>
+
+        {cronConfigs === undefined && (
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        )}
+
+        {cronConfigs && cronConfigs.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No scheduled jobs configured. Run the seed function to initialize.
+          </p>
+        )}
+
+        {cronConfigs && cronConfigs.length > 0 && (
+          <div className="space-y-3 max-w-2xl">
+            {cronConfigs.map((config: any) => (
+              <CronJobCard key={config._id} config={config} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+**Step 4: Add Settings to sidebar navigation**
+
+In `app/frontend/src/components/app-sidebar.tsx`, add a Settings nav item with a gear icon:
+
+```tsx
+import { Settings } from "lucide-react";
+
+// Add to the nav items array:
+{ title: "Settings", url: "/settings", icon: Settings }
+```
+
+**Step 5: Verify**
+
+```bash
+cd app/frontend && npm run dev
+```
+
+Navigate to /settings — should show the Scheduled Jobs section with the weekly digest card and a working enable/disable toggle.
+
+**Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "feat: add settings page with scheduled jobs visibility and control"
+```
+
+---
+
 ## Implementation Priority Summary
 
 | Task | Description | Dependencies |
@@ -1908,9 +2248,12 @@ git commit -m "feat: add generate-digest-now button to dashboard"
 | 12 | Content Pipeline kanban | Task 10 |
 | 13 | Knowledge Pipeline kanban | Task 10, reuses kanban from 12 |
 | 14 | Search page | Task 10 |
-| 15 | Convex digest action | None (backend only) |
-| 16 | Weekly cron job | Task 15 |
-| 17 | Dashboard "Generate Now" button | Task 11, Task 15 |
+| 15 | cronConfig table + CRUD functions | None (backend only) |
+| 16 | Convex digest action (with cronConfig check) | Task 15 |
+| 17 | Weekly cron job | Task 16 |
+| 18 | Dashboard "Generate Now" button | Task 11, Task 16 |
+| 19 | Settings — Scheduled Jobs page | Task 10, Task 15 |
 
 Tasks 12, 13, 14 are independent of each other — they can be implemented in any order after Task 10.
-Tasks 15-16 (backend) are independent of Tasks 11-14 (frontend) — they can be done in parallel.
+Tasks 15-17 (backend) are independent of Tasks 11-14 (frontend) — they can be done in parallel.
+Task 19 (Settings page) can be done anytime after Tasks 10 and 15.

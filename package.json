@@ -1,0 +1,9 @@
+{
+  "name": "feynman",
+  "private": true,
+  "workspaces": [
+    "app/backend",
+    "app/feynman-lib",
+    "app/frontend"
+  ]
+}

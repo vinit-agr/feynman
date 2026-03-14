@@ -29,11 +29,12 @@ export const list = query({
   returns: v.any(),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50;
-    return await ctx.db
+    const all = await ctx.db
       .query("rawFiles")
       .withIndex("by_source_timestamp", (q) => q.eq("source", args.source))
       .order("desc")
-      .take(limit);
+      .collect();
+    return all.filter((f) => f.deleted !== true).slice(0, limit);
   },
 });
 
@@ -41,7 +42,7 @@ export const create = mutation({
   args: {
     source: v.string(),
     sourceId: v.string(),
-    storageId: v.id("_storage"),
+    storageId: v.optional(v.id("_storage")),
     projectPath: v.optional(v.string()),
     projectName: v.optional(v.string()),
     sessionId: v.optional(v.string()),
@@ -49,9 +50,23 @@ export const create = mutation({
     localFileSize: v.number(),
     localModifiedAt: v.number(),
     timestamp: v.number(),
+    projectId: v.optional(v.id("projects")),
+    deleted: v.optional(v.boolean()),
   },
   returns: v.id("rawFiles"),
   handler: async (ctx, args) => {
+    const isDeleted = args.deleted === true;
+
+    // Skip extraction setup for deleted files (zero-message markers)
+    if (isDeleted) {
+      return await ctx.db.insert("rawFiles", {
+        ...args,
+        status: "uploaded" as const,
+        extractionResults: [],
+        deleted: true,
+      });
+    }
+
     // Query auto-run extractors for this source before inserting
     const autoRunExtractors = await ctx.db
       .query("extractors")
@@ -71,6 +86,7 @@ export const create = mutation({
       ...args,
       status,
       extractionResults,
+      deleted: false,
     });
 
     // Enqueue a workpool action for each auto-run extractor
@@ -245,7 +261,7 @@ export const countBySource = query({
       .query("rawFiles")
       .withIndex("by_source_timestamp", (q) => q.eq("source", args.source))
       .collect();
-    return results.length;
+    return results.filter((f) => f.deleted !== true).length;
   },
 });
 
@@ -281,5 +297,99 @@ export const triggerExtractor = mutation({
       { onComplete: internal.extractionPool.handleExtractionComplete, context: { rawFileId: args.rawFileId, extractorName: args.extractorName } }
     );
     return null;
+  },
+});
+
+export const moveToProject = mutation({
+  args: {
+    rawFileId: v.id("rawFiles"),
+    projectId: v.id("projects"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const rawFile = await ctx.db.get(args.rawFileId);
+    if (!rawFile) throw new Error("Raw file not found");
+
+    const oldProjectId = rawFile.projectId;
+    await ctx.db.patch(args.rawFileId, { projectId: args.projectId });
+
+    // Update lastActivityAt on the new project
+    await ctx.db.patch(args.projectId, { lastActivityAt: Date.now() });
+
+    // Update lastActivityAt on the old project if it exists
+    if (oldProjectId) {
+      const oldProject = await ctx.db.get(oldProjectId);
+      if (oldProject) {
+        await ctx.db.patch(oldProjectId, { lastActivityAt: Date.now() });
+      }
+    }
+
+    return null;
+  },
+});
+
+export const softDelete = mutation({
+  args: {
+    rawFileId: v.id("rawFiles"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const rawFile = await ctx.db.get(args.rawFileId);
+    if (!rawFile) throw new Error("Raw file not found");
+
+    // Soft-delete the rawFile
+    await ctx.db.patch(args.rawFileId, { deleted: true });
+
+    // Hard-delete associated knowledgeEntries
+    const entries = await ctx.db
+      .query("knowledgeEntries")
+      .withIndex("by_rawFile_extractor", (q) => q.eq("rawFileId", args.rawFileId))
+      .collect();
+    for (const entry of entries) {
+      await ctx.db.delete(entry._id);
+    }
+
+    // Update lastActivityAt on the project if it exists
+    if (rawFile.projectId) {
+      const project = await ctx.db.get(rawFile.projectId);
+      if (project) {
+        await ctx.db.patch(rawFile.projectId, { lastActivityAt: Date.now() });
+      }
+    }
+
+    return null;
+  },
+});
+
+export const listByProject = query({
+  args: {
+    projectId: v.id("projects"),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const files = await ctx.db
+      .query("rawFiles")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    return files
+      .filter((f) => f.deleted !== true)
+      .sort((a, b) => b.timestamp - a.timestamp);
+  },
+});
+
+export const listUngrouped = query({
+  args: {
+    source: v.string(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const files = await ctx.db
+      .query("rawFiles")
+      .withIndex("by_source_timestamp", (q) => q.eq("source", args.source))
+      .order("desc")
+      .collect();
+    return files.filter(
+      (f) => f.deleted !== true && f.projectId === undefined
+    );
   },
 });

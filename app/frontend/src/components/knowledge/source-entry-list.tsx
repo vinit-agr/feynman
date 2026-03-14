@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useQuery } from "convex/react";
 import { api } from "@backend/convex/_generated/api";
 
@@ -32,6 +33,53 @@ function extractorDotColor(extractorName: string): string {
   return "bg-gray-400";
 }
 
+interface ProjectGroup {
+  projectName: string;
+  projectPath: string | undefined;
+  entries: any[];
+  mostRecentTimestamp: number;
+}
+
+function groupByProject(entries: any[]): ProjectGroup[] {
+  const groups: Record<string, ProjectGroup> = {};
+  const ungrouped: any[] = [];
+
+  for (const entry of entries) {
+    const name = entry.metadata?.projectName as string | undefined;
+    if (!name) {
+      ungrouped.push(entry);
+      continue;
+    }
+    if (!groups[name]) {
+      groups[name] = {
+        projectName: name,
+        projectPath: entry.metadata?.projectPath as string | undefined,
+        entries: [],
+        mostRecentTimestamp: 0,
+      };
+    }
+    groups[name].entries.push(entry);
+    if (entry.timestamp > groups[name].mostRecentTimestamp) {
+      groups[name].mostRecentTimestamp = entry.timestamp;
+    }
+  }
+
+  const sorted = Object.values(groups).sort(
+    (a, b) => b.mostRecentTimestamp - a.mostRecentTimestamp
+  );
+
+  if (ungrouped.length > 0) {
+    sorted.push({
+      projectName: "Ungrouped",
+      projectPath: undefined,
+      entries: ungrouped,
+      mostRecentTimestamp: Math.max(...ungrouped.map((e) => e.timestamp)),
+    });
+  }
+
+  return sorted;
+}
+
 export function SourceEntryList({
   source,
   onEntryClick,
@@ -40,6 +88,7 @@ export function SourceEntryList({
   const [filter, setFilter] = useState<string>("");
   const [projectFilter, setProjectFilter] = useState<string>("");
   const [dateRange, setDateRange] = useState<string>("7");
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
   const extractors = useQuery(api.extractors.list, { source });
   const entries = useQuery(api.knowledgeEntries.listBySourceAndExtractor, {
@@ -70,6 +119,25 @@ export function SourceEntryList({
     }
     return true;
   });
+
+  const groups = groupByProject(filteredEntries);
+
+  function toggleGroup(name: string) {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  const initializedRef = useRef(false);
+  useEffect(() => {
+    if (!initializedRef.current && groups.length > 0) {
+      setOpenGroups(new Set(groups.map((g) => g.projectName)));
+      initializedRef.current = true;
+    }
+  }, [groups.length]);
 
   return (
     <div className="space-y-3">
@@ -115,40 +183,63 @@ export function SourceEntryList({
         </span>
       </div>
 
-      {filteredEntries.length === 0 ? (
+      {groups.length === 0 ? (
         <div className="border rounded-lg p-6 text-center text-sm text-muted-foreground">
           No entries found.
         </div>
       ) : (
-        <div className="border rounded-lg divide-y">
-          {filteredEntries.map((entry: any) => (
-            <div
-              key={entry._id}
-              onClick={() => onEntryClick(entry._id)}
-              className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors ${
-                selectedEntryId === entry._id ? "bg-accent" : ""
-              }`}
-            >
-              <span
-                className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${extractorDotColor(entry.extractorName ?? "")}`}
-              />
-              <div className="flex-1 min-w-0 space-y-0.5">
-                <p className="text-sm font-medium truncate">{entry.title}</p>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                  {entry.metadata?.projectName && (
-                    <span>{entry.metadata.projectName}</span>
-                  )}
-                  {entry.extractorName && (
-                    <span className="capitalize">
-                      {entry.extractorName.replace(/-/g, " ")}
-                    </span>
-                  )}
-                  {entry.metadata?.messageCount !== undefined && (
-                    <span>{entry.metadata.messageCount} msgs</span>
-                  )}
-                  <span>{formatFriendlyDate(entry.timestamp)}</span>
+        <div className="space-y-2">
+          {groups.map((group) => (
+            <div key={group.projectName} className="border rounded-lg overflow-hidden">
+              {/* Group header */}
+              <button
+                onClick={() => toggleGroup(group.projectName)}
+                className="w-full flex items-center gap-2 px-4 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+                title={group.projectPath ?? undefined}
+              >
+                {openGroups.has(group.projectName) ? (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <span className="text-sm font-medium">{group.projectName}</span>
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}
+                </span>
+              </button>
+
+              {/* Group entries */}
+              {openGroups.has(group.projectName) && (
+                <div className="divide-y">
+                  {group.entries.map((entry: any) => (
+                    <div
+                      key={entry._id}
+                      onClick={() => onEntryClick(entry._id)}
+                      className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors ${
+                        selectedEntryId === entry._id ? "bg-accent" : ""
+                      }`}
+                    >
+                      <span
+                        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${extractorDotColor(entry.extractorName ?? "")}`}
+                      />
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <p className="text-sm font-medium truncate">{entry.title}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                          {entry.extractorName && (
+                            <span className="capitalize">
+                              {entry.extractorName.replace(/-/g, " ")}
+                            </span>
+                          )}
+                          {entry.metadata?.messageCount !== undefined && (
+                            <span>{entry.metadata.messageCount} msgs</span>
+                          )}
+                          <span>{formatFriendlyDate(entry.timestamp)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              )}
             </div>
           ))}
         </div>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SourceEntryList } from "@/components/knowledge/source-entry-list";
 import { EntrySlideOver } from "@/components/knowledge/entry-slide-over";
 import { RawFilesList } from "@/components/knowledge/raw-files-list";
+import { RawFileViewer } from "@/components/knowledge/raw-file-viewer";
 
 type View = "entries" | "raw";
 
@@ -11,7 +12,14 @@ const SOURCE = "claude-transcripts";
 
 export default function ClaudeTranscriptsPage() {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<any | null>(null);
   const [view, setView] = useState<View>("entries");
+
+  function handleViewChange(newView: View) {
+    setView(newView);
+    if (newView === "entries") setSelectedFile(null);
+    if (newView === "raw") setSelectedEntryId(null);
+  }
 
   return (
     <div className="space-y-4">
@@ -26,7 +34,7 @@ export default function ClaudeTranscriptsPage() {
       {/* View toggle */}
       <div className="inline-flex rounded-md border bg-muted p-0.5 text-sm">
         <button
-          onClick={() => setView("entries")}
+          onClick={() => handleViewChange("entries")}
           className={`rounded px-3 py-1 transition-colors ${
             view === "entries"
               ? "bg-background shadow-sm font-medium"
@@ -36,7 +44,7 @@ export default function ClaudeTranscriptsPage() {
           Extracted Entries
         </button>
         <button
-          onClick={() => setView("raw")}
+          onClick={() => handleViewChange("raw")}
           className={`rounded px-3 py-1 transition-colors ${
             view === "raw"
               ? "bg-background shadow-sm font-medium"
@@ -55,14 +63,20 @@ export default function ClaudeTranscriptsPage() {
           selectedEntryId={selectedEntryId ?? undefined}
         />
       ) : (
-        <RawFilesList source={SOURCE} />
+        <RawFilesList source={SOURCE} onFileClick={(file) => setSelectedFile(file)} />
       )}
 
-      {/* Slide-over */}
+      {/* Slide-overs */}
       {selectedEntryId && (
         <EntrySlideOver
           entryId={selectedEntryId}
           onClose={() => setSelectedEntryId(null)}
+        />
+      )}
+      {selectedFile && (
+        <RawFileViewer
+          file={selectedFile}
+          onClose={() => setSelectedFile(null)}
         />
       )}
     </div>

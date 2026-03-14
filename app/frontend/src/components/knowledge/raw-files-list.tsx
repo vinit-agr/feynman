@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 
 interface RawFilesListProps {
   source: string;
+  onFileClick?: (file: any) => void;
 }
 
 function formatBytes(n: number): string {
@@ -39,7 +40,7 @@ function statusBadgeClass(status: FileStatus): string {
   }
 }
 
-export function RawFilesList({ source }: RawFilesListProps) {
+export function RawFilesList({ source, onFileClick }: RawFilesListProps) {
   const files = useQuery(api.rawFiles.list, { source, limit: 100 });
 
   const fileList = files ?? [];
@@ -61,7 +62,8 @@ export function RawFilesList({ source }: RawFilesListProps) {
           {fileList.map((file: any) => (
             <div
               key={file._id}
-              className="flex items-center gap-3 px-4 py-3"
+              onClick={() => onFileClick?.(file)}
+              className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors"
             >
               <div className="flex-1 min-w-0 space-y-0.5">
                 <p className="text-sm font-medium truncate">{file.fileName}</p>

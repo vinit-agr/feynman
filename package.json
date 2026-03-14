@@ -8,6 +8,7 @@
     "build": "pnpm --filter frontend build",
     "ingest:claude": "pnpm --filter @feynman/lib ingest:claude",
     "ingest:git": "pnpm --filter @feynman/lib ingest:git",
-    "digest:generate": "pnpm --filter @feynman/lib digest:generate"
+    "digest:generate": "pnpm --filter @feynman/lib digest:generate",
+    "cleanup:claude": "pnpm --filter @feynman/lib cleanup:claude"
   }
 }

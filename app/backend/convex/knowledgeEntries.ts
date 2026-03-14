@@ -217,6 +217,23 @@ export const cleanupOldEntries = mutation({
   },
 });
 
+export const deleteBySource = mutation({
+  args: {
+    source: v.string(),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const entries = await ctx.db
+      .query("knowledgeEntries")
+      .withIndex("by_source", (q) => q.eq("source", args.source))
+      .collect();
+    for (const entry of entries) {
+      await ctx.db.delete(entry._id);
+    }
+    return entries.length;
+  },
+});
+
 export const upsertFromExtractor = internalMutation({
   args: {
     source: v.string(),

@@ -393,3 +393,44 @@ export const listUngrouped = query({
     );
   },
 });
+
+export const listAll = query({
+  args: {
+    source: v.string(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("rawFiles")
+      .withIndex("by_source_timestamp", (q) => q.eq("source", args.source))
+      .collect();
+  },
+});
+
+export const deleteBySource = mutation({
+  args: {
+    source: v.string(),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const files = await ctx.db
+      .query("rawFiles")
+      .withIndex("by_source_timestamp", (q) => q.eq("source", args.source))
+      .collect();
+    for (const file of files) {
+      await ctx.db.delete(file._id);
+    }
+    return files.length;
+  },
+});
+
+export const deleteStorageFile = mutation({
+  args: {
+    storageId: v.id("_storage"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.storage.delete(args.storageId);
+    return null;
+  },
+});

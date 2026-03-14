@@ -117,18 +117,30 @@ export default defineSchema({
   })
     .index("by_type", ["type"]),
 
+  // Project groups for organizing raw files
+  projects: defineTable({
+    name: v.string(),
+    source: v.string(),
+    order: v.optional(v.number()),
+    lastActivityAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_source", ["source"])
+    .index("by_source_order", ["source", "order"])
+    .index("by_source_name", ["source", "name"]),
+
   // Raw files uploaded from local sources (stored in Convex file storage)
   rawFiles: defineTable({
-    source: v.string(),           // e.g., "claude-transcripts", "git-history"
-    sourceId: v.string(),         // unique per file, e.g., "claude:session-uuid"
-    storageId: v.id("_storage"),  // reference to Convex file storage
+    source: v.string(),                        // e.g., "claude-transcripts", "git-history"
+    sourceId: v.string(),                      // unique per file, e.g., "claude:session-uuid"
+    storageId: v.optional(v.id("_storage")),   // reference to Convex file storage (optional for zero-message files)
     projectPath: v.optional(v.string()),
     projectName: v.optional(v.string()),
     sessionId: v.optional(v.string()),
     fileName: v.string(),
     localFileSize: v.number(),
     localModifiedAt: v.number(),
-    timestamp: v.number(),        // file mtime at upload
+    timestamp: v.number(),                     // file mtime at upload
     status: v.union(
       v.literal("uploaded"),
       v.literal("extracting"),
@@ -146,10 +158,14 @@ export default defineSchema({
       entryCount: v.number(),
       error: v.optional(v.string()),
     }))),
+    projectId: v.optional(v.id("projects")),   // project group reference
+    deleted: v.optional(v.boolean()),           // soft-delete flag
   })
     .index("by_source_sourceId", ["source", "sourceId"])
     .index("by_source_status", ["source", "status"])
-    .index("by_source_timestamp", ["source", "timestamp"]),
+    .index("by_source_timestamp", ["source", "timestamp"])
+    .index("by_projectId", ["projectId"])
+    .index("by_source_deleted", ["source", "deleted"]),
 
   // Registry of available extractors per source
   extractors: defineTable({

@@ -1,18 +1,13 @@
 {
   "name": "feynman",
   "private": true,
-  "workspaces": [
-    "app/backend",
-    "app/feynman-lib",
-    "app/frontend"
-  ],
   "scripts": {
-    "dev": "npm run dev:frontend",
-    "dev:frontend": "npm run dev -w app/frontend",
-    "dev:backend": "npm run dev -w app/backend",
-    "build": "npm run build -w app/frontend",
-    "ingest:claude": "npm run ingest:claude -w app/feynman-lib",
-    "ingest:git": "npm run ingest:git -w app/feynman-lib",
-    "digest:generate": "npm run digest:generate -w app/feynman-lib"
+    "dev": "pnpm run dev:frontend",
+    "dev:frontend": "pnpm --filter app/frontend dev",
+    "dev:backend": "pnpm --filter app/backend dev",
+    "build": "pnpm --filter app/frontend build",
+    "ingest:claude": "pnpm --filter app/feynman-lib ingest:claude",
+    "ingest:git": "pnpm --filter app/feynman-lib ingest:git",
+    "digest:generate": "pnpm --filter app/feynman-lib digest:generate"
   }
 }

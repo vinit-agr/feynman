@@ -5,8 +5,8 @@
  * generate a structured weekly digest, and stores the result back in Convex.
  *
  * Usage:
- *   npm run digest:generate
- *   npm run digest:generate -- 14    # custom days back
+ *   pnpm digest:generate
+ *   pnpm digest:generate -- 14    # custom days back
  *
  * Requires CONVEX_URL and ANTHROPIC_API_KEY in app/feynman-lib/.env
  */

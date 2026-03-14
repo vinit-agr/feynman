@@ -5,7 +5,7 @@
  * and pushes them as knowledge entries to Convex.
  *
  * Usage:
- *   npm run ingest:claude
+ *   pnpm ingest:claude
  *
  * Requires CONVEX_URL in app/feynman-lib/.env
  */

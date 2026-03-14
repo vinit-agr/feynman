@@ -5,14 +5,14 @@ Personal knowledge management and content creation system built with Next.js, Co
 ## Prerequisites
 
 - Node.js 18+
-- npm
+- [pnpm](https://pnpm.io/)
 - A [Convex](https://www.convex.dev/) account
 - An [Anthropic](https://www.anthropic.com/) API key (for ingestion/digest scripts)
 
 ## Setup
 
 ```bash
-npm install
+pnpm install
 ```
 
 Copy the example env files and fill in your keys:
@@ -27,13 +27,13 @@ cp app/feynman-lib/.env.example app/feynman-lib/.env
 **Frontend (Next.js):**
 
 ```bash
-npm run dev:frontend
+pnpm dev:frontend
 ```
 
 **Backend (Convex):**
 
 ```bash
-npm run dev:backend
+pnpm dev:backend
 ```
 
 ## Ingestion Scripts
@@ -41,17 +41,17 @@ npm run dev:backend
 **Ingest Claude conversation transcripts:**
 
 ```bash
-npm run ingest:claude
+pnpm ingest:claude
 ```
 
 **Ingest git history:**
 
 ```bash
-npm run ingest:git
+pnpm ingest:git
 ```
 
 **Generate a knowledge digest:**
 
 ```bash
-npm run digest:generate
+pnpm digest:generate
 ```

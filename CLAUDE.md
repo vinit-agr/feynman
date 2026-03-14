@@ -34,7 +34,7 @@ assets/          — Shared assets
 
 ## Conventions
 
-- Package manager: npm (workspaces defined in root package.json)
+- Package manager: pnpm (workspaces defined in pnpm-workspace.yaml)
 - TypeScript: strict mode, ES2022 target, bundler module resolution (see tsconfig.base.json)
 - Each workspace extends tsconfig.base.json for shared compiler options
 - Convex functions live in `app/backend/convex/`

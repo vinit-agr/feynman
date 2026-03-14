@@ -5,8 +5,8 @@
  * as knowledge entries to Convex.
  *
  * Usage:
- *   npm run ingest:git -- ~/repo1 ~/repo2
- *   npm run ingest:git -- --since="60 days ago" ~/repo1
+ *   pnpm ingest:git -- ~/repo1 ~/repo2
+ *   pnpm ingest:git -- --since="60 days ago" ~/repo1
  *
  * Requires CONVEX_URL in app/feynman-lib/.env
  */

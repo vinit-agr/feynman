@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@backend/convex/_generated/api";
 import type { Id } from "@backend/convex/_generated/dataModel";
+import ReactMarkdown from "react-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
@@ -31,6 +33,7 @@ function extractorBadgeVariant(
 }
 
 export function EntrySlideOver({ entryId, onClose }: EntrySlideOverProps) {
+  const [viewMode, setViewMode] = useState<"rendered" | "raw">("rendered");
   const entry = useQuery(api.knowledgeEntries.getById, {
     id: entryId as Id<"knowledgeEntries">,
   });
@@ -89,6 +92,28 @@ export function EntrySlideOver({ entryId, onClose }: EntrySlideOverProps) {
               <div className="h-5 w-48 bg-muted animate-pulse rounded" />
             )}
           </div>
+          <div className="flex items-center gap-0.5 border rounded-md p-0.5 shrink-0">
+            <button
+              onClick={() => setViewMode("rendered")}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                viewMode === "rendered"
+                  ? "bg-accent font-medium"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Rendered
+            </button>
+            <button
+              onClick={() => setViewMode("raw")}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                viewMode === "raw"
+                  ? "bg-accent font-medium"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Raw
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="shrink-0 rounded-md p-1 hover:bg-accent transition-colors"
@@ -118,9 +143,15 @@ export function EntrySlideOver({ entryId, onClose }: EntrySlideOverProps) {
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {entry ? (
-            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-              {entry.content}
-            </pre>
+            viewMode === "rendered" ? (
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown>{entry.content}</ReactMarkdown>
+              </div>
+            ) : (
+              <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                {entry.content}
+              </pre>
+            )
           ) : (
             <div className="space-y-2">
               {[...Array(6)].map((_, i) => (

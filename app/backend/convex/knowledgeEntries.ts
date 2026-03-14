@@ -196,27 +196,6 @@ export const listBySourceAndExtractor = query({
   },
 });
 
-// TEMPORARY: Run once to delete old claude-transcripts entries that were created
-// directly (without rawFileId) by the old ingestion script. Remove after running.
-export const cleanupOldEntries = mutation({
-  args: {},
-  returns: v.number(),
-  handler: async (ctx) => {
-    const old = await ctx.db
-      .query("knowledgeEntries")
-      .withIndex("by_source", (q) => q.eq("source", "claude-transcripts"))
-      .collect();
-    let count = 0;
-    for (const entry of old) {
-      if (!entry.rawFileId) {
-        await ctx.db.delete(entry._id);
-        count++;
-      }
-    }
-    return count;
-  },
-});
-
 export const deleteBySource = mutation({
   args: {
     source: v.string(),

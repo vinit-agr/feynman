@@ -14,10 +14,13 @@ export default defineSchema({
     timestamp: v.number(), // When this knowledge was created/captured
     metadata: v.optional(v.any()),
     embedding: v.optional(v.array(v.float64())),
+    rawFileId: v.optional(v.id("rawFiles")),
+    extractorName: v.optional(v.string()),
   })
     .index("by_source", ["source", "timestamp"])
     .index("by_source_id", ["source", "sourceId"])
     .index("by_timestamp", ["timestamp"])
+    .index("by_rawFile_extractor", ["rawFileId", "extractorName"])
     .searchIndex("search_content", {
       searchField: "content",
       filterFields: ["source"],
@@ -113,6 +116,55 @@ export default defineSchema({
     enabled: v.boolean(),
   })
     .index("by_type", ["type"]),
+
+  // Raw files uploaded from local sources (stored in Convex file storage)
+  rawFiles: defineTable({
+    source: v.string(),           // e.g., "claude-transcripts", "git-history"
+    sourceId: v.string(),         // unique per file, e.g., "claude:session-uuid"
+    storageId: v.id("_storage"),  // reference to Convex file storage
+    projectPath: v.optional(v.string()),
+    projectName: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
+    fileName: v.string(),
+    localFileSize: v.number(),
+    localModifiedAt: v.number(),
+    timestamp: v.number(),        // file mtime at upload
+    status: v.union(
+      v.literal("uploaded"),
+      v.literal("extracting"),
+      v.literal("extracted"),
+      v.literal("failed")
+    ),
+    extractionResults: v.optional(v.array(v.object({
+      extractorName: v.string(),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("running"),
+        v.literal("completed"),
+        v.literal("failed")
+      ),
+      entryCount: v.number(),
+      error: v.optional(v.string()),
+    }))),
+  })
+    .index("by_source_sourceId", ["source", "sourceId"])
+    .index("by_source_status", ["source", "status"])
+    .index("by_source_timestamp", ["source", "timestamp"]),
+
+  // Registry of available extractors per source
+  extractors: defineTable({
+    source: v.string(),
+    name: v.string(),
+    displayName: v.string(),
+    description: v.string(),
+    type: v.union(v.literal("mechanical"), v.literal("ai")),
+    autoRun: v.boolean(),
+    enabled: v.boolean(),
+    parserName: v.optional(v.string()),
+    promptTemplate: v.optional(v.string()),
+  })
+    .index("by_source", ["source"])
+    .index("by_source_name", ["source", "name"]),
 
   // Runtime configuration for scheduled jobs (visibility + control layer)
   cronConfig: defineTable({

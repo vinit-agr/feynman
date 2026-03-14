@@ -25,6 +25,12 @@ All data (knowledge, content, assets) is stored in the Convex database — not o
 - **Scripts:** Pure TypeScript, executed with tsx
 - **AI:** Claude API for summarization, digest generation, and content assistance
 
+## Git Workflow
+
+- Work directly on the `main` branch by default
+- Only switch to a feature branch if already on one or explicitly asked to
+- Use `pnpm exec convex` (not `npx`) for Convex CLI commands
+
 ## Conventions
 
 - Package manager: pnpm (workspaces defined in pnpm-workspace.yaml)

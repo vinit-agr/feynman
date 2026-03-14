@@ -59,6 +59,7 @@ export function SessionList({
   const createProject = useMutation(api.projects.create);
   const renameProject = useMutation(api.projects.rename);
   const deleteProject = useMutation(api.projects.remove);
+  const reorderProjects = useMutation(api.projects.reorder);
   const moveToProject = useMutation(api.rawFiles.moveToProject);
   const softDeleteFile = useMutation(api.rawFiles.softDelete);
 
@@ -100,16 +101,27 @@ export function SessionList({
   }
 
   async function handleDragEnd(result: DropResult) {
-    const { draggableId, destination } = result;
+    const { draggableId, destination, source: dragSource, type } = result;
     if (!destination) return;
 
-    const targetProjectId = destination.droppableId;
-    if (targetProjectId === "ungrouped") return; // Can't drop into ungrouped
+    if (type === "project") {
+      // Reorder projects
+      const newOrder = Array.from(projectList);
+      const [moved] = newOrder.splice(dragSource.index, 1);
+      newOrder.splice(destination.index, 0, moved);
+      await reorderProjects({
+        projectIds: newOrder.map((p: any) => p._id),
+      });
+    } else {
+      // Move session between projects
+      const targetProjectId = destination.droppableId;
+      if (targetProjectId === "ungrouped") return;
 
-    await moveToProject({
-      rawFileId: draggableId as Id<"rawFiles">,
-      projectId: targetProjectId as Id<"projects">,
-    });
+      await moveToProject({
+        rawFileId: draggableId as Id<"rawFiles">,
+        projectId: targetProjectId as Id<"projects">,
+      });
+    }
   }
 
   async function handleDeleteProject(projectId: string, projectName: string, sessionCount: number) {
@@ -163,84 +175,99 @@ export function SessionList({
 
       {/* Project groups */}
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="space-y-2">
-          {projectList.map((project: any) => (
-            <ProjectAccordion
-              key={project._id}
-              project={project}
-              isOpen={openGroups.has(project._id)}
-              onToggle={() => toggleGroup(project._id)}
-              onSessionClick={onSessionClick}
-              selectedSessionId={selectedSessionId}
-              isRenaming={renamingProject === project._id}
-              renameValue={renameValue}
-              onStartRename={() => {
-                setRenamingProject(project._id);
-                setRenameValue(project.name);
-              }}
-              onRenameChange={setRenameValue}
-              onRenameSubmit={() => handleRenameSubmit(project._id)}
-              onRenameCancel={() => setRenamingProject(null)}
-              onDelete={(count) => handleDeleteProject(project._id, project.name, count)}
-              onContextMenu={(e: React.MouseEvent, file: any) => {
-                setContextMenu({ x: e.clientX, y: e.clientY, file });
-              }}
-            />
-          ))}
-
-          {/* Ungrouped section */}
-          {ungroupedList.length > 0 && (
-            <Droppable droppableId="ungrouped" isDropDisabled={true}>
-              {(provided) => (
-                <div ref={provided.innerRef} {...provided.droppableProps}>
-                  <div className="border rounded-lg overflow-hidden">
-                    <button
-                      onClick={() => toggleGroup("ungrouped")}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+        <Droppable droppableId="project-list" type="project">
+          {(provided) => (
+            <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-2">
+              {projectList.map((project: any, index: number) => (
+                <Draggable key={project._id} draggableId={project._id} index={index}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
+                      className={snapshot.isDragging ? "shadow-lg rounded" : ""}
                     >
-                      {openGroups.has("ungrouped") ? (
-                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="text-sm font-medium text-muted-foreground italic">
-                        Ungrouped
-                      </span>
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {ungroupedList.length} {ungroupedList.length === 1 ? "session" : "sessions"}
-                      </span>
-                    </button>
-                    {openGroups.has("ungrouped") && (
-                      <div className="divide-y">
-                        {ungroupedList.map((file: any, index: number) => (
-                          <Draggable key={file._id} draggableId={file._id} index={index}>
-                            {(provided, snapshot) => (
-                              <div
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps}
-                              >
-                                <SessionRow
-                                  file={file}
-                                  onClick={() => onSessionClick(file)}
-                                  isSelected={selectedSessionId === file._id}
-                                  onContextMenu={(e: React.MouseEvent, file: any) => {
-                                    setContextMenu({ x: e.clientX, y: e.clientY, file });
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
+                      <ProjectAccordion
+                        project={project}
+                        dragHandleProps={provided.dragHandleProps}
+                        isOpen={openGroups.has(project._id)}
+                        onToggle={() => toggleGroup(project._id)}
+                        onSessionClick={onSessionClick}
+                        selectedSessionId={selectedSessionId}
+                        isRenaming={renamingProject === project._id}
+                        renameValue={renameValue}
+                        onStartRename={() => {
+                          setRenamingProject(project._id);
+                          setRenameValue(project.name);
+                        }}
+                        onRenameChange={setRenameValue}
+                        onRenameSubmit={() => handleRenameSubmit(project._id)}
+                        onRenameCancel={() => setRenamingProject(null)}
+                        onDelete={(count) => handleDeleteProject(project._id, project.name, count)}
+                        onContextMenu={(e: React.MouseEvent, file: any) => {
+                          setContextMenu({ x: e.clientX, y: e.clientY, file });
+                        }}
+                      />
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </div>
           )}
-        </div>
+        </Droppable>
+
+        {/* Ungrouped section outside project droppable but inside DragDropContext */}
+        {ungroupedList.length > 0 && (
+          <Droppable droppableId="ungrouped" type="session" isDropDisabled={true}>
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps}>
+                <div className="border rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => toggleGroup("ungrouped")}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+                  >
+                    {openGroups.has("ungrouped") ? (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="text-sm font-medium text-muted-foreground italic">
+                      Ungrouped
+                    </span>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {ungroupedList.length} {ungroupedList.length === 1 ? "session" : "sessions"}
+                    </span>
+                  </button>
+                  {openGroups.has("ungrouped") && (
+                    <div className="divide-y">
+                      {ungroupedList.map((file: any, index: number) => (
+                        <Draggable key={file._id} draggableId={file._id} index={index}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                            >
+                              <SessionRow
+                                file={file}
+                                onClick={() => onSessionClick(file)}
+                                isSelected={selectedSessionId === file._id}
+                                onContextMenu={(e: React.MouseEvent, file: any) => {
+                                  setContextMenu({ x: e.clientX, y: e.clientY, file });
+                                }}
+                              />
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        )}
       </DragDropContext>
 
       {projectList.length === 0 && ungroupedList.length === 0 && (
@@ -347,6 +374,7 @@ function SessionContextMenu({
 
 interface ProjectAccordionProps {
   project: any;
+  dragHandleProps?: any;
   isOpen: boolean;
   onToggle: () => void;
   onSessionClick: (file: any) => void;
@@ -363,6 +391,7 @@ interface ProjectAccordionProps {
 
 function ProjectAccordion({
   project,
+  dragHandleProps,
   isOpen,
   onToggle,
   onSessionClick,
@@ -393,6 +422,9 @@ function ProjectAccordion({
     <div className="border rounded-lg overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors">
+        <span {...dragHandleProps} className="cursor-grab text-muted-foreground">
+          ⠿
+        </span>
         <button onClick={onToggle} className="flex items-center gap-2 flex-1 text-left">
           {isOpen ? (
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -437,7 +469,7 @@ function ProjectAccordion({
 
       {/* Sessions */}
       {isOpen && (
-        <Droppable droppableId={project._id}>
+        <Droppable droppableId={project._id} type="session">
           {(provided, snapshot) => (
             <div
               ref={provided.innerRef}

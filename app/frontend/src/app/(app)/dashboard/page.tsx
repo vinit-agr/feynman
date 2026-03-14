@@ -5,7 +5,6 @@ import { useAction } from "convex/react";
 import { api } from "@backend/convex/_generated/api";
 import { DigestCard } from "@/components/dashboard/digest-card";
 import { PipelineSnapshot } from "@/components/dashboard/pipeline-snapshot";
-import { RecentEntries } from "@/components/dashboard/recent-entries";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardPage() {
@@ -31,7 +30,6 @@ export default function DashboardPage() {
       </div>
       <PipelineSnapshot />
       <DigestCard />
-      <RecentEntries />
     </div>
   );
 }

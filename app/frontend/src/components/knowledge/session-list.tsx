@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Plus, MoreHorizontal } from "lucide-react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@backend/convex/_generated/api";
 import type { Id } from "@backend/convex/_generated/dataModel";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 
 interface SessionListProps {
   source: string;
@@ -53,6 +54,7 @@ export function SessionList({
   const createProject = useMutation(api.projects.create);
   const renameProject = useMutation(api.projects.rename);
   const deleteProject = useMutation(api.projects.remove);
+  const moveToProject = useMutation(api.rawFiles.moveToProject);
 
   const projectList = projects ?? [];
   const ungroupedList = ungroupedFiles ?? [];
@@ -91,6 +93,19 @@ export function SessionList({
     setRenamingProject(null);
   }
 
+  async function handleDragEnd(result: DropResult) {
+    const { draggableId, destination } = result;
+    if (!destination) return;
+
+    const targetProjectId = destination.droppableId;
+    if (targetProjectId === "ungrouped") return; // Can't drop into ungrouped
+
+    await moveToProject({
+      rawFileId: draggableId as Id<"rawFiles">,
+      projectId: targetProjectId as Id<"projects">,
+    });
+  }
+
   async function handleDeleteProject(projectId: string, projectName: string, sessionCount: number) {
     const confirmed = confirm(
       `Delete project '${projectName}' and its ${sessionCount} sessions? All transcripts will be hidden and extracted content will be removed. Transcripts can be recovered later, but extraction will need to be re-run.`
@@ -116,62 +131,80 @@ export function SessionList({
       </div>
 
       {/* Project groups */}
-      <div className="space-y-2">
-        {projectList.map((project: any) => (
-          <ProjectAccordion
-            key={project._id}
-            project={project}
-            isOpen={openGroups.has(project._id)}
-            onToggle={() => toggleGroup(project._id)}
-            onSessionClick={onSessionClick}
-            selectedSessionId={selectedSessionId}
-            isRenaming={renamingProject === project._id}
-            renameValue={renameValue}
-            onStartRename={() => {
-              setRenamingProject(project._id);
-              setRenameValue(project.name);
-            }}
-            onRenameChange={setRenameValue}
-            onRenameSubmit={() => handleRenameSubmit(project._id)}
-            onRenameCancel={() => setRenamingProject(null)}
-            onDelete={(count) => handleDeleteProject(project._id, project.name, count)}
-          />
-        ))}
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <div className="space-y-2">
+          {projectList.map((project: any) => (
+            <ProjectAccordion
+              key={project._id}
+              project={project}
+              isOpen={openGroups.has(project._id)}
+              onToggle={() => toggleGroup(project._id)}
+              onSessionClick={onSessionClick}
+              selectedSessionId={selectedSessionId}
+              isRenaming={renamingProject === project._id}
+              renameValue={renameValue}
+              onStartRename={() => {
+                setRenamingProject(project._id);
+                setRenameValue(project.name);
+              }}
+              onRenameChange={setRenameValue}
+              onRenameSubmit={() => handleRenameSubmit(project._id)}
+              onRenameCancel={() => setRenamingProject(null)}
+              onDelete={(count) => handleDeleteProject(project._id, project.name, count)}
+            />
+          ))}
 
-        {/* Ungrouped section */}
-        {ungroupedList.length > 0 && (
-          <div className="border rounded-lg overflow-hidden">
-            <button
-              onClick={() => toggleGroup("ungrouped")}
-              className="w-full flex items-center gap-2 px-4 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
-            >
-              {openGroups.has("ungrouped") ? (
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          {/* Ungrouped section */}
+          {ungroupedList.length > 0 && (
+            <Droppable droppableId="ungrouped" isDropDisabled={true}>
+              {(provided) => (
+                <div ref={provided.innerRef} {...provided.droppableProps}>
+                  <div className="border rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => toggleGroup("ungrouped")}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+                    >
+                      {openGroups.has("ungrouped") ? (
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="text-sm font-medium text-muted-foreground italic">
+                        Ungrouped
+                      </span>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {ungroupedList.length} {ungroupedList.length === 1 ? "session" : "sessions"}
+                      </span>
+                    </button>
+                    {openGroups.has("ungrouped") && (
+                      <div className="divide-y">
+                        {ungroupedList.map((file: any, index: number) => (
+                          <Draggable key={file._id} draggableId={file._id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                              >
+                                <SessionRow
+                                  file={file}
+                                  onClick={() => onSessionClick(file)}
+                                  isSelected={selectedSessionId === file._id}
+                                />
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {provided.placeholder}
+                </div>
               )}
-              <span className="text-sm font-medium text-muted-foreground italic">
-                Ungrouped
-              </span>
-              <span className="text-xs text-muted-foreground ml-auto">
-                {ungroupedList.length} {ungroupedList.length === 1 ? "session" : "sessions"}
-              </span>
-            </button>
-            {openGroups.has("ungrouped") && (
-              <div className="divide-y">
-                {ungroupedList.map((file: any) => (
-                  <SessionRow
-                    key={file._id}
-                    file={file}
-                    onClick={() => onSessionClick(file)}
-                    isSelected={selectedSessionId === file._id}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+            </Droppable>
+          )}
+        </div>
+      </DragDropContext>
 
       {projectList.length === 0 && ungroupedList.length === 0 && (
         <div className="border rounded-lg p-6 text-center text-sm text-muted-foreground">
@@ -274,23 +307,42 @@ function ProjectAccordion({
 
       {/* Sessions */}
       {isOpen && (
-        <div className="divide-y">
-          {fileList.length === 0 ? (
-            <div className="px-4 py-3 text-xs text-muted-foreground italic">
-              No sessions in this project
+        <Droppable droppableId={project._id}>
+          {(provided, snapshot) => (
+            <div
+              ref={provided.innerRef}
+              {...provided.droppableProps}
+              className={`divide-y ${snapshot.isDraggingOver ? "bg-accent/20" : ""}`}
+            >
+              {fileList.length === 0 ? (
+                <div className="px-4 py-3 text-xs text-muted-foreground italic">
+                  No sessions in this project
+                </div>
+              ) : (
+                fileList.map((file: any, index: number) => (
+                  <Draggable key={file._id} draggableId={file._id} index={index}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        className={snapshot.isDragging ? "shadow-lg bg-background rounded" : ""}
+                      >
+                        <SessionRow
+                          file={file}
+                          onClick={() => onSessionClick(file)}
+                          isSelected={selectedSessionId === file._id}
+                          displayTitle={titleMap?.[file._id]}
+                        />
+                      </div>
+                    )}
+                  </Draggable>
+                ))
+              )}
+              {provided.placeholder}
             </div>
-          ) : (
-            fileList.map((file: any) => (
-              <SessionRow
-                key={file._id}
-                file={file}
-                onClick={() => onSessionClick(file)}
-                isSelected={selectedSessionId === file._id}
-                displayTitle={titleMap?.[file._id]}
-              />
-            ))
           )}
-        </div>
+        </Droppable>
       )}
     </div>
   );

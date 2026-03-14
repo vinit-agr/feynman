@@ -227,6 +227,14 @@ export const generateUploadUrl = mutation({
   },
 });
 
+export const getDownloadUrl = query({
+  args: { storageId: v.id("_storage") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    return await ctx.storage.getUrl(args.storageId);
+  },
+});
+
 export const countBySource = query({
   args: {
     source: v.string(),

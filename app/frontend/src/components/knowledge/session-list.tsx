@@ -48,6 +48,11 @@ export function SessionList({
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [renamingProject, setRenamingProject] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    file: any;
+  } | null>(null);
 
   const projects = useQuery(api.projects.listBySource, { source });
   const ungroupedFiles = useQuery(api.rawFiles.listUngrouped, { source });
@@ -55,6 +60,7 @@ export function SessionList({
   const renameProject = useMutation(api.projects.rename);
   const deleteProject = useMutation(api.projects.remove);
   const moveToProject = useMutation(api.rawFiles.moveToProject);
+  const softDeleteFile = useMutation(api.rawFiles.softDelete);
 
   const projectList = projects ?? [];
   const ungroupedList = ungroupedFiles ?? [];
@@ -114,6 +120,31 @@ export function SessionList({
     await deleteProject({ projectId: projectId as Id<"projects"> });
   }
 
+  async function handleContextDelete(rawFileId: string, fileName: string) {
+    const confirmed = confirm(
+      `Delete session '${fileName}'? The transcript will be hidden and extracted content will be removed. You can recover the transcript later, but extraction will need to be re-run.`
+    );
+    if (!confirmed) return;
+    await softDeleteFile({ rawFileId: rawFileId as Id<"rawFiles"> });
+  }
+
+  async function handleContextMoveTo(rawFileId: string, projectId: string) {
+    await moveToProject({
+      rawFileId: rawFileId as Id<"rawFiles">,
+      projectId: projectId as Id<"projects">,
+    });
+  }
+
+  async function handleContextCreateAndMove(rawFileId: string) {
+    const name = prompt("New project name:");
+    if (!name?.trim()) return;
+    const projectId = await createProject({ name: name.trim(), source });
+    await moveToProject({
+      rawFileId: rawFileId as Id<"rawFiles">,
+      projectId,
+    });
+  }
+
   return (
     <div className="space-y-3">
       {/* Top bar */}
@@ -151,6 +182,9 @@ export function SessionList({
               onRenameSubmit={() => handleRenameSubmit(project._id)}
               onRenameCancel={() => setRenamingProject(null)}
               onDelete={(count) => handleDeleteProject(project._id, project.name, count)}
+              onContextMenu={(e: React.MouseEvent, file: any) => {
+                setContextMenu({ x: e.clientX, y: e.clientY, file });
+              }}
             />
           ))}
 
@@ -190,6 +224,9 @@ export function SessionList({
                                   file={file}
                                   onClick={() => onSessionClick(file)}
                                   isSelected={selectedSessionId === file._id}
+                                  onContextMenu={(e: React.MouseEvent, file: any) => {
+                                    setContextMenu({ x: e.clientX, y: e.clientY, file });
+                                  }}
                                 />
                               </div>
                             )}
@@ -211,11 +248,102 @@ export function SessionList({
           No sessions found. Run ingestion to populate.
         </div>
       )}
+
+      {contextMenu && (
+        <SessionContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          file={contextMenu.file}
+          projects={projectList}
+          onClose={() => setContextMenu(null)}
+          onMoveTo={handleContextMoveTo}
+          onDelete={handleContextDelete}
+          onCreateAndMove={handleContextCreateAndMove}
+        />
+      )}
     </div>
   );
 }
 
 // --- Sub-components ---
+
+interface ContextMenuProps {
+  x: number;
+  y: number;
+  file: any;
+  projects: any[];
+  onClose: () => void;
+  onMoveTo: (rawFileId: string, projectId: string) => void;
+  onDelete: (rawFileId: string, fileName: string) => void;
+  onCreateAndMove: (rawFileId: string) => void;
+}
+
+function SessionContextMenu({
+  x,
+  y,
+  file,
+  projects,
+  onClose,
+  onMoveTo,
+  onDelete,
+  onCreateAndMove,
+}: ContextMenuProps) {
+  const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
+
+  // Close on click outside
+  useEffect(() => {
+    function handleClick() { onClose(); }
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed z-[60] bg-background border rounded-lg shadow-lg py-1 min-w-[180px]"
+      style={{ left: x, top: y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div
+        className="relative"
+        onMouseEnter={() => setShowMoveSubmenu(true)}
+        onMouseLeave={() => setShowMoveSubmenu(false)}
+      >
+        <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors flex items-center justify-between">
+          Move to
+          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+        </button>
+        {showMoveSubmenu && (
+          <div className="absolute left-full top-0 bg-background border rounded-lg shadow-lg py-1 min-w-[160px] ml-1">
+            {projects
+              .filter((p: any) => p._id !== file.projectId)
+              .map((p: any) => (
+                <button
+                  key={p._id}
+                  onClick={() => { onMoveTo(file._id, p._id); onClose(); }}
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+                >
+                  {p.name}
+                </button>
+              ))}
+            <div className="border-t my-1" />
+            <button
+              onClick={() => { onCreateAndMove(file._id); onClose(); }}
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors text-muted-foreground"
+            >
+              + New Project...
+            </button>
+          </div>
+        )}
+      </div>
+      <button
+        onClick={() => { onDelete(file._id, file.fileName); onClose(); }}
+        className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+      >
+        Delete session
+      </button>
+    </div>
+  );
+}
 
 interface ProjectAccordionProps {
   project: any;
@@ -230,6 +358,7 @@ interface ProjectAccordionProps {
   onRenameSubmit: () => void;
   onRenameCancel: () => void;
   onDelete: (sessionCount: number) => void;
+  onContextMenu: (e: React.MouseEvent, file: any) => void;
 }
 
 function ProjectAccordion({
@@ -245,6 +374,7 @@ function ProjectAccordion({
   onRenameSubmit,
   onRenameCancel,
   onDelete,
+  onContextMenu,
 }: ProjectAccordionProps) {
   const files = useQuery(api.rawFiles.listByProject, {
     projectId: project._id as Id<"projects">,
@@ -333,6 +463,7 @@ function ProjectAccordion({
                           onClick={() => onSessionClick(file)}
                           isSelected={selectedSessionId === file._id}
                           displayTitle={titleMap?.[file._id]}
+                          onContextMenu={onContextMenu}
                         />
                       </div>
                     )}
@@ -353,14 +484,19 @@ interface SessionRowProps {
   onClick: () => void;
   isSelected: boolean;
   displayTitle?: string;
+  onContextMenu?: (e: React.MouseEvent, file: any) => void;
 }
 
-function SessionRow({ file, onClick, isSelected, displayTitle }: SessionRowProps) {
+function SessionRow({ file, onClick, isSelected, displayTitle, onContextMenu }: SessionRowProps) {
   const title = displayTitle ?? file.fileName;
 
   return (
     <div
       onClick={onClick}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContextMenu?.(e, file);
+      }}
       className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-accent/50 transition-colors ${
         isSelected ? "bg-accent" : ""
       }`}
@@ -372,6 +508,15 @@ function SessionRow({ file, onClick, isSelected, displayTitle }: SessionRowProps
       <span className="text-xs text-muted-foreground shrink-0">
         {formatFriendlyDate(file.timestamp)}
       </span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onContextMenu?.(e, file);
+        }}
+        className="shrink-0 p-1 rounded hover:bg-accent transition-colors text-muted-foreground"
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }

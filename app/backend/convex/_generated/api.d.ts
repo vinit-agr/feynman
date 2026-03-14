@@ -18,6 +18,7 @@ import type * as extractionPool from "../extractionPool.js";
 import type * as extractors from "../extractors.js";
 import type * as knowledgeEntries from "../knowledgeEntries.js";
 import type * as knowledgePipeline from "../knowledgePipeline.js";
+import type * as projects from "../projects.js";
 import type * as rawFiles from "../rawFiles.js";
 import type * as sources from "../sources.js";
 
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   extractors: typeof extractors;
   knowledgeEntries: typeof knowledgeEntries;
   knowledgePipeline: typeof knowledgePipeline;
+  projects: typeof projects;
   rawFiles: typeof rawFiles;
   sources: typeof sources;
 }>;

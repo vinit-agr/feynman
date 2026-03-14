@@ -166,8 +166,59 @@ export const runExtractor = internalAction({
       return { entryCount: 1 };
     }
 
-    if (extractor.type === "ai") {
-      throw new Error("AI extractors not yet implemented (Phase 4)");
+    if (extractor.type === "ai" && extractor.promptTemplate) {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const anthropic = new Anthropic();
+
+      // Use mechanical parser to get clean conversation text
+      const cleanParser = PARSERS["parseClaudeStripTools"];
+      const parsed = cleanParser(rawText);
+
+      // Substitute template variables
+      let prompt = extractor.promptTemplate;
+      prompt = prompt.replace(/\{\{content\}\}/g, parsed.content.slice(0, 30_000));
+      prompt = prompt.replace(/\{\{projectName\}\}/g, rawFile.projectName ?? "unknown");
+
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        throw new Error("No text response from Claude API");
+      }
+
+      // Parse JSON array response
+      let decisions: Array<{ title: string; content: string; tags?: string[] }>;
+      try {
+        decisions = JSON.parse(textBlock.text);
+      } catch {
+        const match = textBlock.text.match(/\[[\s\S]*\]/);
+        if (!match) throw new Error("Failed to parse AI extraction response");
+        decisions = JSON.parse(match[0]);
+      }
+
+      // Create one knowledge entry per decision
+      let entryCount = 0;
+      for (let i = 0; i < decisions.length; i++) {
+        const decision = decisions[i];
+        await ctx.runMutation(internal.knowledgeEntries.upsertFromExtractor, {
+          source: rawFile.source,
+          sourceId: `${rawFile.sourceId}:${extractorName}:${i}`,
+          title: decision.title,
+          content: decision.content,
+          tags: [...(decision.tags ?? []), "engineering-decision", rawFile.projectName ?? ""].filter(Boolean),
+          timestamp: rawFile.timestamp,
+          metadata: { projectPath: rawFile.projectPath, extractedFrom: rawFile.sourceId },
+          rawFileId,
+          extractorName,
+        });
+        entryCount++;
+      }
+
+      return { entryCount };
     }
 
     throw new Error(`Unknown extractor type: ${extractor.type}`);

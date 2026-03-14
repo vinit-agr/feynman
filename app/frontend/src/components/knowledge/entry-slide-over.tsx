@@ -35,6 +35,7 @@ export function EntrySlideOver({ entryId, onClose }: EntrySlideOverProps) {
     id: entryId as Id<"knowledgeEntries">,
   });
   const createPipelineItem = useMutation(api.knowledgePipeline.create);
+  const triggerExtractor = useMutation(api.rawFiles.triggerExtractor);
 
   async function handlePromote() {
     if (!entry) return;
@@ -134,7 +135,21 @@ export function EntrySlideOver({ entryId, onClose }: EntrySlideOverProps) {
         </div>
 
         {/* Footer */}
-        <div className="border-t px-5 py-3 flex items-center justify-end">
+        <div className="border-t px-5 py-3 flex items-center justify-end gap-2">
+          {entry?.rawFileId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                await triggerExtractor({
+                  rawFileId: entry.rawFileId!,
+                  extractorName: "engineering-decisions",
+                });
+              }}
+            >
+              Run AI Extractor
+            </Button>
+          )}
           <Button size="sm" onClick={handlePromote} disabled={!entry}>
             Promote to Pipeline
           </Button>

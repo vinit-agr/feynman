@@ -1,7 +1,64 @@
+# Dependencies
 node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js
 .next/
-.env
-.env.local
-dist/
+out/
+build/
+next-env.d.ts
+
+# Convex
 .convex/
+
+# Production / Build
+dist/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# TypeScript
 *.tsbuildinfo
+
+# Testing
+coverage/
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Vercel
+.vercel
+
+# Keys and certificates
+*.pem
+
+# Turbo
+.turbo
+
+# Misc
+.cache/
+*.log

@@ -34,3 +34,25 @@ export async function updateSourceLastIngested(
     entryCount,
   });
 }
+
+export async function generateUploadUrl(client: ConvexHttpClient): Promise<string> {
+  return await client.mutation("rawFiles:generateUploadUrl" as any, {});
+}
+
+export async function getRawFileBySourceId(client: ConvexHttpClient, source: string, sourceId: string): Promise<any> {
+  return await client.query("rawFiles:getBySourceId" as any, { source, sourceId });
+}
+
+export async function createRawFile(client: ConvexHttpClient, args: {
+  source: string; sourceId: string; storageId: string;
+  projectPath?: string; projectName?: string; sessionId?: string;
+  fileName: string; localFileSize: number; localModifiedAt: number; timestamp: number;
+}): Promise<string> {
+  return await client.mutation("rawFiles:create" as any, args);
+}
+
+export async function reuploadRawFile(client: ConvexHttpClient, args: {
+  id: string; storageId: string; localFileSize: number; localModifiedAt: number; timestamp: number;
+}): Promise<void> {
+  await client.mutation("rawFiles:reupload" as any, args);
+}

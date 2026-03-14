@@ -24,7 +24,7 @@
 **Step 1: Scaffold Next.js app**
 
 ```bash
-cd /Users/vinit/Tars/Content-Creation/video-creation/feynman/app/frontend
+cd /Users/vinit/Tars/Content-Creation/feynman/app/frontend
 rm .gitkeep
 npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --no-import-alias --use-npm
 ```

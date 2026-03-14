@@ -15,14 +15,14 @@ type ParseResult = {
   metadata: Record<string, unknown>;
 };
 
-type ParserFn = (rawText: string) => ParseResult;
+type ParserFn = (rawText: string, projectPath?: string, projectName?: string) => ParseResult;
 
 // ---------------------------------------------------------------------------
 // parseClaudeStripTools
 // Parses JSONL Claude conversation transcripts, stripping tool calls.
 // ---------------------------------------------------------------------------
 
-function parseClaudeStripTools(rawText: string): ParseResult {
+function parseClaudeStripTools(rawText: string, projectPath?: string, projectName?: string): ParseResult {
   const lines = rawText.split("\n").filter((l) => l.trim().length > 0);
 
   const messages: Array<{ role: string; text: string }> = [];
@@ -70,24 +70,35 @@ function parseClaudeStripTools(rawText: string): ParseResult {
   const rawTitle = firstHuman?.text ?? "Untitled Conversation";
   const title = rawTitle.slice(0, 120);
 
-  // Build markdown content
+  // Build markdown content, optionally prefixed with project header
+  const headerParts: string[] = [];
+  if (projectName) headerParts.push(`**Project:** ${projectName}`);
+  if (projectPath) headerParts.push(`**Path:** ${projectPath}`);
+  const header = headerParts.length > 0 ? headerParts.join("  \n") + "\n\n" : "";
+
   const sections = messages.map(
     (m) => `### ${m.role}\n\n${m.text}`
   );
-  let content = sections.join("\n\n---\n\n");
+  let content = header + sections.join("\n\n---\n\n");
 
   // Cap at 50,000 chars
   if (content.length > 50_000) {
     content = content.slice(0, 50_000);
   }
 
+  // Build tags from projectName/projectPath
+  const tags: string[] = [];
+  if (projectName) tags.push(projectName);
+
   return {
     title,
     content,
-    tags: [],
+    tags,
     metadata: {
       messageCount: messages.length,
-      parser: "parseClaudeStripTools",
+      parser: "claude-strip-tools",
+      ...(projectPath ? { projectPath } : {}),
+      ...(projectName ? { projectName } : {}),
     },
   };
 }
@@ -97,7 +108,7 @@ function parseClaudeStripTools(rawText: string): ParseResult {
 // ---------------------------------------------------------------------------
 
 const PARSERS: Record<string, ParserFn> = {
-  parseClaudeStripTools,
+  "claude-strip-tools": parseClaudeStripTools,
 };
 
 // ---------------------------------------------------------------------------
@@ -145,7 +156,7 @@ export const runExtractor = internalAction({
         throw new Error(`No parser registered for parserName: ${parserName}`);
       }
 
-      const parsed = parser(rawText);
+      const parsed = parser(rawText, rawFile.projectPath, rawFile.projectName);
 
       // Build a stable sourceId for the knowledge entry
       // Use rawFile.sourceId + extractor name so re-runs upsert, not duplicate
@@ -171,7 +182,7 @@ export const runExtractor = internalAction({
       const anthropic = new Anthropic();
 
       // Use mechanical parser to get clean conversation text
-      const cleanParser = PARSERS["parseClaudeStripTools"];
+      const cleanParser = PARSERS["claude-strip-tools"];
       const parsed = cleanParser(rawText);
 
       // Substitute template variables

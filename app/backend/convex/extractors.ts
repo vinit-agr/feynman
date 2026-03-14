@@ -82,6 +82,7 @@ export const seed = mutation({
       displayName: "Project Work Summary",
       description: "Extracts a mechanical summary of project work performed in a Claude session",
       type: "mechanical" as const,
+      parserName: "claude-strip-tools",
       autoRun: true,
       enabled: true,
     };

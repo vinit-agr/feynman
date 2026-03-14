@@ -53,11 +53,41 @@ export const create = mutation({
   },
   returns: v.id("rawFiles"),
   handler: async (ctx, args) => {
-    return await ctx.db.insert("rawFiles", {
+    // Query auto-run extractors for this source before inserting
+    const autoRunExtractors = await ctx.db
+      .query("extractors")
+      .withIndex("by_source", (q) => q.eq("source", args.source))
+      .collect()
+      .then((list) => list.filter((e) => e.autoRun && e.enabled));
+
+    const extractionResults = autoRunExtractors.map((e) => ({
+      extractorName: e.name,
+      status: "pending" as const,
+      entryCount: 0,
+    }));
+
+    const status = autoRunExtractors.length > 0 ? ("extracting" as const) : ("uploaded" as const);
+
+    const rawFileId = await ctx.db.insert("rawFiles", {
       ...args,
-      status: "uploaded" as const,
-      extractionResults: [],
+      status,
+      extractionResults,
     });
+
+    // Enqueue a workpool action for each auto-run extractor
+    for (const extractor of autoRunExtractors) {
+      await extractionPool.enqueueAction(
+        ctx,
+        internal.extraction.runExtractor,
+        { rawFileId, extractorName: extractor.name },
+        {
+          onComplete: handleExtractionComplete,
+          context: { rawFileId, extractorName: extractor.name },
+        }
+      );
+    }
+
+    return rawFileId;
   },
 });
 
@@ -72,11 +102,45 @@ export const reupload = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const { id, ...rest } = args;
+
+    // Fetch rawFile to know its source
+    const rawFile = await ctx.db.get(id);
+    if (!rawFile) throw new Error("Raw file not found");
+
+    // Query auto-run extractors for this source
+    const autoRunExtractors = await ctx.db
+      .query("extractors")
+      .withIndex("by_source", (q) => q.eq("source", rawFile.source))
+      .collect()
+      .then((list) => list.filter((e) => e.autoRun && e.enabled));
+
+    const extractionResults = autoRunExtractors.map((e) => ({
+      extractorName: e.name,
+      status: "pending" as const,
+      entryCount: 0,
+    }));
+
+    const status = autoRunExtractors.length > 0 ? ("extracting" as const) : ("uploaded" as const);
+
     await ctx.db.patch(id, {
       ...rest,
-      status: "uploaded" as const,
-      extractionResults: [],
+      status,
+      extractionResults,
     });
+
+    // Enqueue a workpool action for each auto-run extractor
+    for (const extractor of autoRunExtractors) {
+      await extractionPool.enqueueAction(
+        ctx,
+        internal.extraction.runExtractor,
+        { rawFileId: id, extractorName: extractor.name },
+        {
+          onComplete: handleExtractionComplete,
+          context: { rawFileId: id, extractorName: extractor.name },
+        }
+      );
+    }
+
     return null;
   },
 });

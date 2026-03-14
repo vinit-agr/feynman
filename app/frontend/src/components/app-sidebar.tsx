@@ -36,7 +36,6 @@ export function AppSidebar() {
   const isContentRoute = pathname.startsWith("/content");
 
   const [knowledgeOpen, setKnowledgeOpen] = useState(isKnowledgeRoute);
-  const [sourcesOpen, setSourcesOpen] = useState(isKnowledgeRoute);
   const [contentOpen, setContentOpen] = useState(false);
 
   const claudeCount = useQuery(api.rawFiles.countBySource, {
@@ -83,66 +82,38 @@ export function AppSidebar() {
 
             {knowledgeOpen && (
               <SidebarMenuSub>
-                {/* Sources nested accordion */}
                 <SidebarMenuSubItem>
                   <SidebarMenuSubButton
-                    render={<button />}
-                    onClick={() => setSourcesOpen((o) => !o)}
-                    isActive={pathname.startsWith("/knowledge/sources")}
-                    className="w-full cursor-pointer"
+                    render={<Link href="/knowledge/sources/claude-transcripts" />}
+                    isActive={pathname === "/knowledge/sources/claude-transcripts"}
                   >
-                    <span className="flex items-center gap-2 w-full">
-                      <span className="flex-1">Sources</span>
-                      {sourcesOpen ? (
-                        <ChevronDown className="h-3 w-3 shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 shrink-0" />
-                      )}
-                    </span>
+                    <MessageSquare className="h-3 w-3" />
+                    <span className="flex-1">Claude</span>
+                    {claudeCount !== undefined && (
+                      <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                        {claudeCount}
+                      </span>
+                    )}
                   </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
 
-                  {sourcesOpen && (
-                    <SidebarMenuSub className="ml-2 mt-0.5">
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton
-                          render={
-                            <Link href="/knowledge/sources/claude-transcripts" />
-                          }
-                          isActive={pathname === "/knowledge/sources/claude-transcripts"}
-                        >
-                          <MessageSquare className="h-3 w-3" />
-                          <span className="flex-1">Claude Transcripts</span>
-                          {claudeCount !== undefined && (
-                            <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-                              {claudeCount}
-                            </span>
-                          )}
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton
-                          render={
-                            <Link href="/knowledge/sources/git-history" />
-                          }
-                          isActive={pathname === "/knowledge/sources/git-history"}
-                        >
-                          <GitBranch className="h-3 w-3" />
-                          <span className="flex-1">Git History</span>
-                          {gitCount !== undefined && (
-                            <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-                              {gitCount}
-                            </span>
-                          )}
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    </SidebarMenuSub>
-                  )}
+                <SidebarMenuSubItem>
+                  <SidebarMenuSubButton
+                    render={<Link href="/knowledge/sources/git-history" />}
+                    isActive={pathname === "/knowledge/sources/git-history"}
+                  >
+                    <GitBranch className="h-3 w-3" />
+                    <span className="flex-1">Git</span>
+                    {gitCount !== undefined && (
+                      <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                        {gitCount}
+                      </span>
+                    )}
+                  </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
 
                 <SidebarSeparator className="my-1" />
 
-                {/* Knowledge Pipeline */}
                 <SidebarMenuSubItem>
                   <SidebarMenuSubButton
                     render={<Link href="/knowledge/pipeline" />}

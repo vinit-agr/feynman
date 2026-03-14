@@ -158,7 +158,7 @@ export function EntrySlideOver({ entryId, onClose }: EntrySlideOverProps) {
                 <div
                   key={i}
                   className="h-4 bg-muted animate-pulse rounded"
-                  style={{ width: `${70 + Math.random() * 30}%` }}
+                  style={{ width: `${70 + ((i * 7) % 30)}%` }}
                 />
               ))}
             </div>

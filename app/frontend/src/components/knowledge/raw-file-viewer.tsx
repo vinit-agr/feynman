@@ -65,7 +65,7 @@ export function RawFileViewer({ file, onClose }: RawFileViewerProps) {
   });
 
   const [records, setRecords] = useState<
-    Array<{ index: number; summary: string; json: string; raw: Record<string, unknown> }>
+    Array<{ index: number; summary: string; json: string }>
   >([]);
   const [rawText, setRawText] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -92,14 +92,12 @@ export function RawFileViewer({ file, onClose }: RawFileViewerProps) {
               index: i,
               summary: recordSummary(obj),
               json: JSON.stringify(obj, null, 2),
-              raw: obj,
             };
           } catch {
             return {
               index: i,
               summary: `Line ${i + 1} (parse error)`,
               json: line,
-              raw: {},
             };
           }
         });

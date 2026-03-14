@@ -10,17 +10,21 @@ interface SourceEntryListProps {
   selectedEntryId?: string;
 }
 
-function formatRelativeDate(timestamp: number): string {
-  const now = Date.now();
-  const diff = now - timestamp;
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  if (days === 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-  return `${Math.floor(days / 365)}y ago`;
+function formatFriendlyDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
+
+const datePresets = [
+  { label: "Last 7 days", value: "7" },
+  { label: "Last 30 days", value: "30" },
+  { label: "Last 90 days", value: "90" },
+  { label: "All time", value: "" },
+];
 
 function extractorDotColor(extractorName: string): string {
   if (extractorName === "project-work-summary") return "bg-blue-500";
@@ -34,6 +38,8 @@ export function SourceEntryList({
   selectedEntryId,
 }: SourceEntryListProps) {
   const [filter, setFilter] = useState<string>("");
+  const [projectFilter, setProjectFilter] = useState<string>("");
+  const [dateRange, setDateRange] = useState<string>("7");
 
   const extractors = useQuery(api.extractors.list, { source });
   const entries = useQuery(api.knowledgeEntries.listBySourceAndExtractor, {
@@ -45,33 +51,77 @@ export function SourceEntryList({
   const extractorList = extractors ?? [];
   const entryList = entries ?? [];
 
+  const projectNames = Array.from(
+    new Set(
+      entryList
+        .map((e: any) => e.metadata?.projectName as string | undefined)
+        .filter(Boolean)
+    )
+  ).sort();
+
+  const filteredEntries = entryList.filter((entry: any) => {
+    if (projectFilter && entry.metadata?.projectName !== projectFilter) {
+      return false;
+    }
+    if (dateRange) {
+      const daysAgo = parseInt(dateRange, 10);
+      const cutoff = Date.now() - daysAgo * 24 * 60 * 60 * 1000;
+      if (entry.timestamp < cutoff) return false;
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="text-sm border rounded-md px-2 py-1 bg-background"
-        >
-          <option value="">All extractors</option>
-          {extractorList.map((ex: any) => (
-            <option key={ex.name} value={ex.name}>
-              {ex.displayName}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="text-sm border rounded-md px-2 py-1 bg-background"
+          >
+            <option value="">All extractors</option>
+            {extractorList.map((ex: any) => (
+              <option key={ex.name} value={ex.name}>
+                {ex.displayName}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="text-sm border rounded-md px-2 py-1 bg-background"
+          >
+            <option value="">All projects</option>
+            {projectNames.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+
+          <select
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value)}
+            className="text-sm border rounded-md px-2 py-1 bg-background"
+          >
+            {datePresets.map((preset) => (
+              <option key={preset.value} value={preset.value}>{preset.label}</option>
+            ))}
+          </select>
+        </div>
+
         <span className="text-xs text-muted-foreground">
-          {entryList.length} {entryList.length === 1 ? "entry" : "entries"}
+          {filteredEntries.length} {filteredEntries.length === 1 ? "entry" : "entries"}
         </span>
       </div>
 
-      {entryList.length === 0 ? (
+      {filteredEntries.length === 0 ? (
         <div className="border rounded-lg p-6 text-center text-sm text-muted-foreground">
           No entries found.
         </div>
       ) : (
         <div className="border rounded-lg divide-y">
-          {entryList.map((entry: any) => (
+          {filteredEntries.map((entry: any) => (
             <div
               key={entry._id}
               onClick={() => onEntryClick(entry._id)}
@@ -96,7 +146,7 @@ export function SourceEntryList({
                   {entry.metadata?.messageCount !== undefined && (
                     <span>{entry.metadata.messageCount} msgs</span>
                   )}
-                  <span>{formatRelativeDate(entry.timestamp)}</span>
+                  <span>{formatFriendlyDate(entry.timestamp)}</span>
                 </div>
               </div>
             </div>

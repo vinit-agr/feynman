@@ -11,19 +11,12 @@ app/
   backend/       — Convex backend (database, serverless functions, actions)
   feynman-lib/   — Pure TypeScript scripts for ingestion and processing (run via tsx)
   frontend/      — Next.js App Router frontend
-content/
-  talking-head/  — Talking head video content
-  ai-videos/     — AI-generated video content
-  blog/          — Blog post content
-  social/        — Social media content
-knowledge/
-  raw/           — Raw ingested knowledge (articles, transcripts, notes)
-  curated/       — Curated and processed knowledge
 docs/
   plans/         — Design docs and implementation plans
   workflows/     — Workflow documentation
-assets/          — Shared assets
 ```
+
+All data (knowledge, content, assets) is stored in the Convex database — not on the filesystem.
 
 ## Tech Stack
 

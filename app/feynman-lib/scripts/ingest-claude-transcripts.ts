@@ -21,6 +21,7 @@ import {
   getRawFileBySourceId,
   createRawFile,
   reuploadRawFile,
+  findOrCreateProject,
 } from "./shared/convex-client.js";
 
 // ---------------------------------------------------------------------------
@@ -125,6 +126,27 @@ async function uploadFile(uploadUrl: string, fileContent: Buffer): Promise<strin
 }
 
 // ---------------------------------------------------------------------------
+// Message counting
+// ---------------------------------------------------------------------------
+
+async function countMessages(filePath: string): Promise<number> {
+  const content = fs.readFileSync(filePath, "utf-8");
+  const lines = content.split("\n").filter((l) => l.trim());
+  let messageCount = 0;
+  for (const line of lines) {
+    try {
+      const record = JSON.parse(line);
+      if (record.type === "human" || record.type === "assistant") {
+        messageCount++;
+      }
+    } catch {
+      // skip unparseable lines
+    }
+  }
+  return messageCount;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -180,6 +202,12 @@ async function main(): Promise<void> {
       const existing = await getRawFileBySourceId(client, SOURCE_NAME, sourceId);
 
       if (existing) {
+        // Skip deleted files entirely
+        if (existing.deleted === true) {
+          skipped++;
+          continue;
+        }
+
         // Check if size and mtime match — if so, skip
         if (
           existing.localFileSize === localFileSize &&
@@ -189,7 +217,7 @@ async function main(): Promise<void> {
           continue;
         }
 
-        // File changed — re-upload
+        // File changed — re-upload (do NOT touch projectId)
         const fileContent = fs.readFileSync(filePath);
         const uploadUrl = await generateUploadUrl(client);
         const storageId = await uploadFile(uploadUrl, fileContent);
@@ -205,10 +233,43 @@ async function main(): Promise<void> {
         reUploads++;
         console.log(`  re-uploaded: ${fileName}`);
       } else {
-        // New file — upload and create record
+        // New file — check message count first
+        const messageCount = await countMessages(filePath);
+
+        if (messageCount === 0) {
+          // Zero-message file — create marker row, no storage upload
+          const projectPath = deriveProjectPath(filePath);
+          const projectName = deriveProjectName(projectPath);
+          const sessionId = deriveSessionId(filePath);
+
+          await createRawFile(client, {
+            source: SOURCE_NAME,
+            sourceId,
+            projectPath,
+            projectName,
+            sessionId,
+            fileName,
+            localFileSize,
+            localModifiedAt,
+            timestamp,
+            deleted: true,
+          });
+
+          skipped++;
+          console.log(`  skipped (empty): ${fileName}`);
+          continue;
+        }
+
+        // Has messages — upload and create record with project
         const projectPath = deriveProjectPath(filePath);
         const projectName = deriveProjectName(projectPath);
         const sessionId = deriveSessionId(filePath);
+
+        // Find or create project group
+        let projectId: string | undefined;
+        if (projectName) {
+          projectId = await findOrCreateProject(client, projectName, SOURCE_NAME);
+        }
 
         const fileContent = fs.readFileSync(filePath);
         const uploadUrl = await generateUploadUrl(client);
@@ -225,6 +286,8 @@ async function main(): Promise<void> {
           localFileSize,
           localModifiedAt,
           timestamp,
+          projectId,
+          deleted: false,
         });
 
         newUploads++;

@@ -44,11 +44,16 @@ export async function getRawFileBySourceId(client: ConvexHttpClient, source: str
 }
 
 export async function createRawFile(client: ConvexHttpClient, args: {
-  source: string; sourceId: string; storageId: string;
+  source: string; sourceId: string; storageId?: string;
   projectPath?: string; projectName?: string; sessionId?: string;
   fileName: string; localFileSize: number; localModifiedAt: number; timestamp: number;
+  projectId?: string; deleted?: boolean;
 }): Promise<string> {
   return await client.mutation("rawFiles:create" as any, args);
+}
+
+export async function findOrCreateProject(client: ConvexHttpClient, name: string, source: string): Promise<string> {
+  return await client.mutation("projects:findOrCreate" as any, { name, source });
 }
 
 export async function reuploadRawFile(client: ConvexHttpClient, args: {

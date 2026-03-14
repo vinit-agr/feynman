@@ -24,7 +24,7 @@ export const handleExtractionComplete = extractionPool.defineOnComplete({
     const rawFile = await ctx.db.get(rawFileId);
     if (!rawFile) return;
 
-    const results = (rawFile.extractionResults ?? []).map((r) =>
+    const results = ((rawFile.extractionResults ?? []) as Array<{ extractorName: string; status: string; entryCount: number; error?: string }>).map((r) =>
       r.extractorName === extractorName
         ? {
             extractorName,

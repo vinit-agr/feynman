@@ -185,6 +185,9 @@ export const runExtractor = internalAction({
     }
 
     // 3. Fetch raw file bytes from storage
+    if (!rawFile.storageId) {
+      throw new Error(`Raw file ${rawFileId} has no storage file (may be a zero-message marker)`);
+    }
     const blob = await ctx.storage.get(rawFile.storageId);
     if (!blob) {
       throw new Error(`Storage object not found: ${rawFile.storageId}`);

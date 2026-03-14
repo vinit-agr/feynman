@@ -22,12 +22,6 @@ async function main(): Promise<void> {
 
   // Step 1: Collect storageIds from rawFiles before deleting rows
   console.log("Collecting storage file references...");
-  const rawFiles: any[] = await client.query("rawFiles:list" as any, {
-    source: SOURCE_NAME,
-    limit: 10000,
-  });
-
-  // Also get deleted files (list filters them out)
   const allRawFiles: any[] = await client.query("rawFiles:listAll" as any, {
     source: SOURCE_NAME,
   });

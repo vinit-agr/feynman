@@ -29,6 +29,7 @@ export default function ClaudeTranscriptsPage() {
       {/* Slide-over */}
       {selectedFile && (
         <SessionSlideOver
+          key={selectedFile._id}
           rawFile={selectedFile}
           onClose={() => setSelectedFile(null)}
         />

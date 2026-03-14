@@ -1,9 +1,8 @@
 import { v } from "convex/values";
 import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 
-// NOTE: extractionPool and handleExtractionComplete come from ./extractionPool (Task 6).
-// These imports will compile once that file exists.
-import { extractionPool, handleExtractionComplete } from "./extractionPool";
+// Workpool instance for enqueuing extraction jobs
+import { extractionPool } from "./extractionPool";
 import { internal } from "./_generated/api";
 
 export const getBySourceId = query({
@@ -81,7 +80,7 @@ export const create = mutation({
         internal.extraction.runExtractor,
         { rawFileId, extractorName: extractor.name },
         {
-          onComplete: handleExtractionComplete,
+          onComplete: internal.extractionPool.handleExtractionComplete,
           context: { rawFileId, extractorName: extractor.name },
         }
       );
@@ -135,7 +134,7 @@ export const reupload = mutation({
         internal.extraction.runExtractor,
         { rawFileId: id, extractorName: extractor.name },
         {
-          onComplete: handleExtractionComplete,
+          onComplete: internal.extractionPool.handleExtractionComplete,
           context: { rawFileId: id, extractorName: extractor.name },
         }
       );
@@ -271,7 +270,7 @@ export const triggerExtractor = mutation({
     await ctx.db.patch(args.rawFileId, { status: "extracting" as const, extractionResults: results });
     await extractionPool.enqueueAction(ctx, internal.extraction.runExtractor,
       { rawFileId: args.rawFileId, extractorName: args.extractorName },
-      { onComplete: handleExtractionComplete, context: { rawFileId: args.rawFileId, extractorName: args.extractorName } }
+      { onComplete: internal.extractionPool.handleExtractionComplete, context: { rawFileId: args.rawFileId, extractorName: args.extractorName } }
     );
     return null;
   },

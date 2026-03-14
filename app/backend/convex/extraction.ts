@@ -18,6 +18,51 @@ type ParseResult = {
 type ParserFn = (rawText: string, projectPath?: string, projectName?: string) => ParseResult;
 
 // ---------------------------------------------------------------------------
+// deriveTitle — smart title from first meaningful human message
+// ---------------------------------------------------------------------------
+
+function deriveTitle(messages: Array<{ role: string; text: string }>): string {
+  const MAX_TITLE_LENGTH = 120;
+
+  let candidate = "";
+  for (const msg of messages) {
+    if (msg.role !== "Human") continue;
+    candidate = msg.text.trim();
+
+    // Strip leading slash commands (e.g., /commit, /review-pr, /help)
+    candidate = candidate.replace(/^\/\S+\s*/g, "").trim();
+
+    // Strip common filler phrases at the start
+    const fillers = /^(can you|could you|please|i want to|i need to|i'd like to|let's|lets)\s+/i;
+    while (fillers.test(candidate)) {
+      candidate = candidate.replace(fillers, "").trim();
+    }
+
+    if (candidate.length >= 10) break;
+  }
+
+  if (!candidate || candidate.length < 10) {
+    return "Claude Code conversation";
+  }
+
+  // Collapse whitespace and newlines
+  candidate = candidate.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+
+  // Truncate at first sentence boundary if within max length
+  const sentenceEnd = candidate.search(/[.?!]\s/);
+  if (sentenceEnd > 0 && sentenceEnd < MAX_TITLE_LENGTH) {
+    candidate = candidate.slice(0, sentenceEnd + 1);
+  } else if (candidate.length > MAX_TITLE_LENGTH) {
+    candidate = candidate.slice(0, MAX_TITLE_LENGTH - 3) + "...";
+  }
+
+  // Capitalize first letter
+  candidate = candidate.charAt(0).toUpperCase() + candidate.slice(1);
+
+  return candidate;
+}
+
+// ---------------------------------------------------------------------------
 // parseClaudeStripTools
 // Parses JSONL Claude conversation transcripts, stripping tool calls.
 // ---------------------------------------------------------------------------
@@ -65,10 +110,8 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
     messages.push({ role, text: textParts.join("\n") });
   }
 
-  // Derive title from first human message (120 char max)
-  const firstHuman = messages.find((m) => m.role === "Human");
-  const rawTitle = firstHuman?.text ?? "Untitled Conversation";
-  const title = rawTitle.slice(0, 120);
+  // Derive title from first meaningful human message
+  const title = deriveTitle(messages);
 
   // Build markdown content, optionally prefixed with project header
   const headerParts: string[] = [];

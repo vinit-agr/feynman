@@ -3,11 +3,11 @@
   "private": true,
   "scripts": {
     "dev": "pnpm run dev:frontend",
-    "dev:frontend": "pnpm --filter app/frontend dev",
-    "dev:backend": "pnpm --filter app/backend dev",
-    "build": "pnpm --filter app/frontend build",
-    "ingest:claude": "pnpm --filter app/feynman-lib ingest:claude",
-    "ingest:git": "pnpm --filter app/feynman-lib ingest:git",
-    "digest:generate": "pnpm --filter app/feynman-lib digest:generate"
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:backend": "pnpm --filter @feynman/backend dev",
+    "build": "pnpm --filter frontend build",
+    "ingest:claude": "pnpm --filter @feynman/lib ingest:claude",
+    "ingest:git": "pnpm --filter @feynman/lib ingest:git",
+    "digest:generate": "pnpm --filter @feynman/lib digest:generate"
   }
 }

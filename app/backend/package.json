@@ -2,8 +2,8 @@
   "name": "@feynman/backend",
   "private": true,
   "scripts": {
-    "dev": "npx convex dev",
-    "deploy": "npx convex deploy"
+    "dev": "convex dev",
+    "deploy": "convex deploy"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

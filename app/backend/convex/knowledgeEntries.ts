@@ -234,6 +234,26 @@ export const deleteBySource = mutation({
   },
 });
 
+export const getTitlesByRawFileIds = query({
+  args: {
+    rawFileIds: v.array(v.id("rawFiles")),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const result: Record<string, string> = {};
+    for (const rawFileId of args.rawFileIds) {
+      const entry = await ctx.db
+        .query("knowledgeEntries")
+        .withIndex("by_rawFile_extractor", (q) => q.eq("rawFileId", rawFileId))
+        .first();
+      if (entry) {
+        result[rawFileId] = entry.title;
+      }
+    }
+    return result;
+  },
+});
+
 export const upsertFromExtractor = internalMutation({
   args: {
     source: v.string(),

@@ -13,6 +13,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.52.0
         version: 0.52.0
+      '@convex-dev/workpool':
+        specifier: ^0.4.2
+        version: 0.4.2(convex-helpers@0.1.114(convex@1.33.1(react@19.2.3))(hono@4.12.7)(react@19.2.3)(typescript@5.9.3)(zod@4.3.6))(convex@1.33.1(react@19.2.3))
       convex:
         specifier: ^1.21.0
         version: 1.33.1(react@19.2.3)
@@ -273,6 +276,12 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  '@convex-dev/workpool@0.4.2':
+    resolution: {integrity: sha512-lNFFouUeCVPAzT6OVDZSqN17sw+MiJSzXwet2CevVzbec6snt0IXf/qazYmhQkbGl6SIfqT3y8yL7sxw+7gEfA==}
+    peerDependencies:
+      convex: ^1.31.7
+      convex-helpers: ^0.1.94
 
   '@dotenvx/dotenvx@1.55.1':
     resolution: {integrity: sha512-WEuKyoe9CA7dfcFBnNbL0ndbCNcptaEYBygfFo9X1qEG+HD7xku4CYIplw6sbAHJavesZWbVBHeRSpvri0eKqw==}
@@ -1509,6 +1518,28 @@ packages:
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
+
+  convex-helpers@0.1.114:
+    resolution: {integrity: sha512-elEdh+gG6BDv2dWIWVvBeJPbHnDQS5+WexUuwlGVJXz1EbMkXz/UIQwFIfLMZIXUwW6ot4JYf/1JJKNStrE6lg==}
+    hasBin: true
+    peerDependencies:
+      '@standard-schema/spec': ^1.0.0
+      convex: ^1.32.0
+      hono: ^4.0.5
+      react: ^17.0.2 || ^18.0.0 || ^19.0.0
+      typescript: ^5.5
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      '@standard-schema/spec':
+        optional: true
+      hono:
+        optional: true
+      react:
+        optional: true
+      typescript:
+        optional: true
+      zod:
+        optional: true
 
   convex@1.33.1:
     resolution: {integrity: sha512-mRhR1XqZPLhgJsUepecM/kOgQVRCWKJtHHtyEX/XYY4zmzfItG0D1GNh5fjNEkuO5+72X4PCkzbEFA6327rxog==}
@@ -3643,6 +3674,11 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.14
 
+  '@convex-dev/workpool@0.4.2(convex-helpers@0.1.114(convex@1.33.1(react@19.2.3))(hono@4.12.7)(react@19.2.3)(typescript@5.9.3)(zod@4.3.6))(convex@1.33.1(react@19.2.3))':
+    dependencies:
+      convex: 1.33.1(react@19.2.3)
+      convex-helpers: 0.1.114(convex@1.33.1(react@19.2.3))(hono@4.12.7)(react@19.2.3)(typescript@5.9.3)(zod@4.3.6)
+
   '@dotenvx/dotenvx@1.55.1':
     dependencies:
       commander: 11.1.0
@@ -4676,6 +4712,15 @@ snapshots:
   content-type@1.0.5: {}
 
   convert-source-map@2.0.0: {}
+
+  convex-helpers@0.1.114(convex@1.33.1(react@19.2.3))(hono@4.12.7)(react@19.2.3)(typescript@5.9.3)(zod@4.3.6):
+    dependencies:
+      convex: 1.33.1(react@19.2.3)
+    optionalDependencies:
+      hono: 4.12.7
+      react: 19.2.3
+      typescript: 5.9.3
+      zod: 4.3.6
 
   convex@1.33.1(react@19.2.3):
     dependencies:

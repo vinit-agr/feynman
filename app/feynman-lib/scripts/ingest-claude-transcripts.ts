@@ -136,7 +136,7 @@ async function countMessages(filePath: string): Promise<number> {
   for (const line of lines) {
     try {
       const record = JSON.parse(line);
-      if (record.type === "human" || record.type === "assistant") {
+      if (record.type === "user" || record.type === "assistant") {
         messageCount++;
       }
     } catch {

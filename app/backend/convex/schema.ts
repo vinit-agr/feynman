@@ -178,6 +178,7 @@ export default defineSchema({
     enabled: v.boolean(),
     parserName: v.optional(v.string()),
     promptTemplate: v.optional(v.string()),
+    rendererType: v.optional(v.string()),
   })
     .index("by_source", ["source"])
     .index("by_source_name", ["source", "name"]),

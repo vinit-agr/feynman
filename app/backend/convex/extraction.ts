@@ -17,16 +17,53 @@ type ParseResult = {
 
 type ParserFn = (rawText: string, projectPath?: string, projectName?: string) => ParseResult;
 
+interface ConversationMessage {
+  role: "human" | "assistant";
+  text: string;
+  timestamp?: string;
+  toolCalls?: ToolCallSummary[];
+}
+
+interface ToolCallSummary {
+  tool: string;
+  shortDescription: string;
+}
+
 // ---------------------------------------------------------------------------
 // deriveTitle — smart title from first meaningful human message
 // ---------------------------------------------------------------------------
+
+function deriveToolDescription(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case "bash": {
+      const cmd = typeof input.command === "string" ? input.command : "";
+      return cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd;
+    }
+    case "edit":
+    case "read":
+    case "write": {
+      const filePath = typeof input.file_path === "string" ? input.file_path : "";
+      if (filePath.length > 60) {
+        return "..." + filePath.slice(-57);
+      }
+      return filePath;
+    }
+    case "glob":
+    case "grep": {
+      const pattern = typeof input.pattern === "string" ? input.pattern : "";
+      return pattern.length > 60 ? pattern.slice(0, 57) + "..." : pattern;
+    }
+    default:
+      return toolName;
+  }
+}
 
 function deriveTitle(messages: Array<{ role: string; text: string }>): string {
   const MAX_TITLE_LENGTH = 120;
 
   let candidate = "";
   for (const msg of messages) {
-    if (msg.role !== "Human") continue;
+    if (msg.role !== "human") continue;
     candidate = msg.text.trim();
 
     // Strip leading slash commands (e.g., /commit, /review-pr, /help)
@@ -62,6 +99,19 @@ function deriveTitle(messages: Array<{ role: string; text: string }>): string {
   return candidate;
 }
 
+/**
+ * Convert structured messages back to readable text for AI prompt injection.
+ * Mirrors the old markdown output format.
+ */
+function messagesToReadableText(messages: ConversationMessage[]): string {
+  return messages
+    .map((m) => {
+      const roleLabel = m.role === "human" ? "Human" : "Assistant";
+      return `### ${roleLabel}\n\n${m.text}`;
+    })
+    .join("\n\n---\n\n");
+}
+
 // ---------------------------------------------------------------------------
 // parseClaudeStripTools
 // Parses JSONL Claude conversation transcripts, stripping tool calls.
@@ -70,7 +120,7 @@ function deriveTitle(messages: Array<{ role: string; text: string }>): string {
 function parseClaudeStripTools(rawText: string, projectPath?: string, projectName?: string): ParseResult {
   const lines = rawText.split("\n").filter((l) => l.trim().length > 0);
 
-  const messages: Array<{ role: string; text: string }> = [];
+  const messages: ConversationMessage[] = [];
 
   for (const line of lines) {
     let record: Record<string, unknown>;
@@ -86,10 +136,11 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
     const type = record.type as string | undefined;
     if (type !== "user" && type !== "assistant") continue;
 
-    // Extract text content blocks only
-    const messageContent = record.message as
-      | { content?: unknown }
-      | undefined;
+    // Extract timestamp
+    const timestamp = typeof record.timestamp === "string" ? record.timestamp : undefined;
+
+    // Extract content blocks
+    const messageContent = record.message as { content?: unknown } | undefined;
     if (!messageContent) continue;
 
     const contentArr = Array.isArray(messageContent.content)
@@ -97,39 +148,72 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
       : [];
 
     const textParts: string[] = [];
+    const toolCalls: ToolCallSummary[] = [];
+
     for (const block of contentArr) {
       if (block.type === "text" && typeof block.text === "string") {
         textParts.push(block.text);
+      } else if (block.type === "tool_use" && typeof block.name === "string") {
+        const input = (block.input as Record<string, unknown>) ?? {};
+        toolCalls.push({
+          tool: block.name,
+          shortDescription: deriveToolDescription(block.name, input),
+        });
       }
-      // Skip tool_use, tool_result blocks
+      // tool_result blocks are ignored — they are output, not actions
     }
 
-    if (textParts.length === 0) continue;
+    const role: "human" | "assistant" = type === "user" ? "human" : "assistant";
+    const text = textParts.join("\n");
 
-    const role = type === "user" ? "Human" : "Assistant";
-    messages.push({ role, text: textParts.join("\n") });
+    // Merge consecutive assistant messages
+    const prevMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+    if (role === "assistant" && prevMessage?.role === "assistant") {
+      // Append text (if any) to previous message
+      if (text) {
+        prevMessage.text = prevMessage.text
+          ? prevMessage.text + "\n\n" + text
+          : text;
+      }
+      // Append tool calls to previous message
+      if (toolCalls.length > 0) {
+        prevMessage.toolCalls = [...(prevMessage.toolCalls ?? []), ...toolCalls];
+      }
+      // Update timestamp to latest
+      if (timestamp) {
+        prevMessage.timestamp = timestamp;
+      }
+      continue;
+    }
+
+    // Tool-only message with no text — attach to previous assistant message
+    if (text.length === 0 && toolCalls.length > 0 && prevMessage?.role === "assistant") {
+      prevMessage.toolCalls = [...(prevMessage.toolCalls ?? []), ...toolCalls];
+      continue;
+    }
+
+    // Skip records with no text and no tool calls
+    if (text.length === 0 && toolCalls.length === 0) continue;
+
+    const msg: ConversationMessage = { role, text };
+    if (timestamp) msg.timestamp = timestamp;
+    if (toolCalls.length > 0) msg.toolCalls = toolCalls;
+    messages.push(msg);
   }
 
   // Derive title from first meaningful human message
   const title = deriveTitle(messages);
 
-  // Build markdown content, optionally prefixed with project header
-  const headerParts: string[] = [];
-  if (projectName) headerParts.push(`**Project:** ${projectName}`);
-  if (projectPath) headerParts.push(`**Path:** ${projectPath}`);
-  const header = headerParts.length > 0 ? headerParts.join("  \n") + "\n\n" : "";
-
-  const sections = messages.map(
-    (m) => `### ${m.role}\n\n${m.text}`
-  );
-  let content = header + sections.join("\n\n---\n\n");
-
-  // Cap at 50,000 chars
-  if (content.length > 50_000) {
-    content = content.slice(0, 50_000);
+  // Serialize to JSON, truncating at message boundaries if over 50K
+  let content: string;
+  let truncatedMessages = messages;
+  content = JSON.stringify(truncatedMessages);
+  while (content.length > 50_000 && truncatedMessages.length > 1) {
+    truncatedMessages = truncatedMessages.slice(0, -1);
+    content = JSON.stringify(truncatedMessages);
   }
 
-  // Build tags from projectName/projectPath
+  // Build tags from projectName
   const tags: string[] = [];
   if (projectName) tags.push(projectName);
 
@@ -140,6 +224,7 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
     metadata: {
       messageCount: messages.length,
       parser: "claude-strip-tools",
+      format: "conversation-json",
       ...(projectPath ? { projectPath } : {}),
       ...(projectName ? { projectName } : {}),
     },
@@ -227,13 +312,16 @@ export const runExtractor = internalAction({
       const Anthropic = (await import("@anthropic-ai/sdk")).default;
       const anthropic = new Anthropic();
 
-      // Use mechanical parser to get clean conversation text
+      // Use mechanical parser to get structured conversation, then convert to readable text for AI
       const cleanParser = PARSERS["claude-strip-tools"];
       const parsed = cleanParser(rawText);
+      const readableText = messagesToReadableText(
+        JSON.parse(parsed.content) as ConversationMessage[]
+      );
 
       // Substitute template variables
       let prompt = extractor.promptTemplate;
-      prompt = prompt.replace(/\{\{content\}\}/g, parsed.content.slice(0, 30_000));
+      prompt = prompt.replace(/\{\{content\}\}/g, readableText.slice(0, 30_000));
       prompt = prompt.replace(/\{\{projectName\}\}/g, rawFile.projectName ?? "unknown");
 
       const response = await anthropic.messages.create({

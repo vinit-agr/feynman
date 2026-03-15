@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronRight, Terminal, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, Terminal, FileText, ChevronsUpDown } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types (mirrors backend ConversationMessage)
@@ -33,6 +33,16 @@ function formatTimestamp(ts: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function countWords(text: string): number {
+  if (!text) return 0;
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function formatWordCount(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
 }
 
 function toolIcon(tool: string) {
@@ -90,9 +100,18 @@ function ToolCallChips({ toolCalls }: { toolCalls: ToolCallSummary[] }) {
   );
 }
 
-function MessageBubble({ message }: { message: ConversationMessage }) {
+function MessageBubble({
+  message,
+  forceCollapsed,
+}: {
+  message: ConversationMessage;
+  forceCollapsed?: boolean;
+}) {
   const isHuman = message.role === "human";
-  const [collapsed, setCollapsed] = useState(false);
+  const [localCollapsed, setLocalCollapsed] = useState(false);
+  const collapsed = forceCollapsed ?? localCollapsed;
+
+  const wordCount = useMemo(() => countWords(message.text), [message.text]);
 
   // Generate preview text (first line or first 100 chars)
   const previewText = message.text
@@ -109,7 +128,7 @@ function MessageBubble({ message }: { message: ConversationMessage }) {
     >
       {/* Clickable header */}
       <button
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => setLocalCollapsed(!collapsed)}
         className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
       >
         {collapsed ? (
@@ -124,7 +143,7 @@ function MessageBubble({ message }: { message: ConversationMessage }) {
               : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
           }`}
         >
-          {isHuman ? "You" : "Claude"}
+          {isHuman ? "You" : "Claude"} ({formatWordCount(wordCount)})
         </span>
         {collapsed && previewText && (
           <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
@@ -164,6 +183,8 @@ interface ConversationRendererProps {
 }
 
 export function ConversationRenderer({ data }: ConversationRendererProps) {
+  const [allCollapsed, setAllCollapsed] = useState<boolean | null>(null);
+
   const messages = useMemo(() => {
     try {
       const parsed = JSON.parse(data);
@@ -173,6 +194,15 @@ export function ConversationRenderer({ data }: ConversationRendererProps) {
       return null;
     }
   }, [data]);
+
+  const toggleAll = useCallback(() => {
+    setAllCollapsed((prev) => (prev === true ? false : true));
+  }, []);
+
+  // Reset force state when individual messages are clicked
+  const clearForce = useCallback(() => {
+    setAllCollapsed(null);
+  }, []);
 
   if (!messages) {
     return (
@@ -196,10 +226,31 @@ export function ConversationRenderer({ data }: ConversationRendererProps) {
   }
 
   return (
-    <div className="px-4 py-4 space-y-3">
-      {messages.map((msg, i) => (
-        <MessageBubble key={i} message={msg} />
-      ))}
+    <div className="px-4 py-4">
+      {/* Collapse/Expand All bar */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs text-muted-foreground">
+          {messages.length} {messages.length === 1 ? "message" : "messages"}
+        </span>
+        <button
+          onClick={toggleAll}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-accent"
+        >
+          <ChevronsUpDown className="h-3 w-3" />
+          {allCollapsed === true ? "Expand All" : "Collapse All"}
+        </button>
+      </div>
+
+      {/* Messages */}
+      <div className="space-y-3">
+        {messages.map((msg, i) => (
+          <MessageBubble
+            key={i}
+            message={msg}
+            forceCollapsed={allCollapsed ?? undefined}
+          />
+        ))}
+      </div>
     </div>
   );
 }

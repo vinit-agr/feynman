@@ -6,6 +6,12 @@ import { api } from "@backend/convex/_generated/api";
 import type { Id } from "@backend/convex/_generated/dataModel";
 import ReactMarkdown from "react-markdown";
 import { X, ChevronDown, ChevronRight } from "lucide-react";
+import { ConversationRenderer } from "@/components/knowledge/renderers/conversation-renderer";
+
+// Renderer registry — maps rendererType to a component that handles that format
+const RENDERERS: Record<string, React.ComponentType<{ data: string }>> = {
+  conversation: ConversationRenderer,
+};
 
 interface SessionSlideOverProps {
   rawFile: any;
@@ -127,6 +133,11 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
   // Find the entry for the currently selected extractor
   const selectedEntry = selectedView !== "raw"
     ? entryList.find((e: any) => e.extractorName === selectedView)
+    : null;
+
+  // Find the extractor record for the selected view (needed for rendererType)
+  const selectedExtractor = selectedView !== "raw"
+    ? extractorList.find((ex: any) => ex.name === selectedView)
     : null;
 
   // Derive title from the first completed extraction entry, or fall back to fileName
@@ -300,17 +311,42 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
                     </div>
                   </div>
 
-                  <div className="px-5 py-4">
-                    {contentMode === "rendered" ? (
-                      <div className="prose prose-sm dark:prose-invert max-w-none">
-                        <ReactMarkdown>{selectedEntry.content}</ReactMarkdown>
-                      </div>
-                    ) : (
+                  {contentMode === "rendered" ? (
+                    (() => {
+                      const Renderer = selectedExtractor?.rendererType
+                        ? RENDERERS[selectedExtractor.rendererType]
+                        : undefined;
+                      if (Renderer) {
+                        // Custom renderers handle their own padding
+                        return <Renderer data={selectedEntry.content} />;
+                      } else if (selectedExtractor?.rendererType) {
+                        return (
+                          <div className="px-5 py-8 text-center">
+                            <p className="text-sm text-muted-foreground">
+                              Unknown renderer: {selectedExtractor.rendererType}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="px-5 py-4 prose prose-sm dark:prose-invert max-w-none">
+                          <ReactMarkdown>{selectedEntry.content}</ReactMarkdown>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="px-5 py-4">
                       <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
-                        {selectedEntry.content}
+                        {(() => {
+                          try {
+                            return JSON.stringify(JSON.parse(selectedEntry.content), null, 2);
+                          } catch {
+                            return selectedEntry.content;
+                          }
+                        })()}
                       </pre>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="flex items-center justify-center h-full">

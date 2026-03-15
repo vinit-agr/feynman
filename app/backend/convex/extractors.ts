@@ -85,6 +85,7 @@ export const seed = mutation({
       parserName: "claude-strip-tools",
       autoRun: true,
       enabled: true,
+      rendererType: "conversation",
     };
 
     if (existing1) {

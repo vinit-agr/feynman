@@ -91,7 +91,7 @@ The parser currently iterates JSONL records, skips meta/sidechain, extracts text
 
 2. **Merge consecutive assistant messages.** When the current JSONL record is `type: "assistant"` and the previous message in the array is also `role: "assistant"`, append the text to the existing message and add any tool calls to its `toolCalls` array. This collapses tool_result records into the preceding assistant turn.
 
-3. **Extract tool summaries from `tool_use` blocks.** For each `tool_use` content block:
+3. **Extract tool summaries from `tool_use` blocks only.** Only `tool_use` content blocks contribute to the `toolCalls` array — `tool_result` blocks are ignored (they are output, not actions). For each `tool_use` block:
    - `tool`: the `name` field (e.g., "bash", "edit", "read", "glob", "grep")
    - `shortDescription`: derived from the tool input:
      - `bash`: first 80 chars of `input.command`
@@ -101,11 +101,13 @@ The parser currently iterates JSONL records, skips meta/sidechain, extracts text
 
 4. **Handle tool-only messages.** If an assistant JSONL record contains only `tool_use`/`tool_result` blocks and no `text` blocks, it produces no new message — its tool summaries are appended to the previous assistant message's `toolCalls` array. If there is no previous assistant message, create one with empty text.
 
-5. **Preserve timestamps.** Pull `record.timestamp` from each JSONL record and include it in the message object.
+5. **Preserve timestamps.** Pull `record.timestamp` from each JSONL record and include it in the message object. If `timestamp` is missing or unparseable, omit it from the message object (the field is optional).
+
+6. **Provide a `messagesToReadableText` helper.** Extract a standalone function that converts a `ConversationMessage[]` array into a plain-text string suitable for AI prompt injection (similar to the old markdown format but without tool details). This is needed because the AI extractor ("engineering-decisions") internally calls `parseClaudeStripTools` and injects `parsed.content` into its prompt template. Without this helper, the AI extractor would receive raw JSON instead of readable text. The helper is called by the AI extractor path in `extraction.ts`, not by the parser itself.
 
 ### Title derivation
 
-Title derivation logic stays the same — derived from the first meaningful human message text.
+Title derivation logic stays the same — derived from the first meaningful human message text. Note: the existing `deriveTitle` function checks for `role === "Human"` (capitalized). This must be updated to match the new lowercase `role: "human"` convention.
 
 ### ParseResult output
 
@@ -124,11 +126,11 @@ Title derivation logic stays the same — derived from the first meaningful huma
 }
 ```
 
-The `metadata.format` field is informational — the renderer selection is driven by the extractor's `rendererType`, not by this field.
+The `metadata.format` field is for debugging/observability only — the renderer selection is driven by the extractor's `rendererType`, not by this field. It can be removed if it adds confusion; it has no runtime consumer.
 
 ### Content cap
 
-The 50,000 character cap applies to the serialized JSON string, same as before.
+The 50,000 character cap applies to the serialized JSON string. **Important:** Truncation must happen at message boundaries — drop trailing messages from the array until the serialized JSON is under the cap. Do not slice the JSON string mid-message, as that would produce invalid JSON that the renderer cannot parse.
 
 ---
 
@@ -165,15 +167,18 @@ const Renderer = selectedExtractor?.rendererType
 
 if (Renderer) {
   return <Renderer data={selectedEntry.content} />;
+} else if (selectedExtractor?.rendererType) {
+  // rendererType is set but not found in registry — show warning
+  return <p>Unknown renderer: {selectedExtractor.rendererType}</p>;
 } else {
-  // Fall back to current ReactMarkdown behavior
+  // No rendererType — fall back to current ReactMarkdown behavior
   return <ReactMarkdown>{selectedEntry.content}</ReactMarkdown>;
 }
 ```
 
 The Rendered/Raw toggle still works:
 - **Rendered:** Uses the custom renderer (or ReactMarkdown fallback)
-- **Raw:** Shows the raw string (JSON or markdown) in a `<pre>` block
+- **Raw:** Shows the raw content in a `<pre>` block. For JSON content, pretty-print with `JSON.stringify(JSON.parse(content), null, 2)` so it's readable. For markdown content (legacy extractors), show as-is.
 
 To support this, the slide-over needs access to the extractor record (not just the entry). It already queries `api.extractors.list` for the dropdown, so the extractor metadata is available.
 
@@ -247,9 +252,9 @@ To support this, the slide-over needs access to the extractor record (not just t
 
 - Raw JSONL files in Convex storage (untouched)
 - "Raw Transcript" view in the slide-over (unchanged)
-- "engineering-decisions" AI extractor (no rendererType, keeps ReactMarkdown)
+- "engineering-decisions" AI extractor (no rendererType, keeps ReactMarkdown). Note: the AI extractor path in `extraction.ts` must be updated to use `messagesToReadableText()` to convert the structured JSON back to readable text for prompt injection.
 - The Rendered/Raw toggle behavior
-- Title derivation logic
+- Title derivation logic (with role casing fix: `"Human"` → `"human"`)
 - Ingestion pipeline (no changes)
 - SessionList component (no changes)
 

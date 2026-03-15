@@ -445,8 +445,8 @@ function MessageBubble({ message }: { message: ConversationMessage }) {
     <div
       className={`px-4 py-3 rounded-lg ${
         isHuman
-          ? "bg-blue-50 dark:bg-blue-950/30 border-l-3 border-l-blue-400 dark:border-l-blue-600"
-          : "bg-gray-50 dark:bg-gray-800/50 border-l-3 border-l-gray-300 dark:border-l-gray-600"
+          ? "bg-blue-50 dark:bg-blue-950/30 border-l-2 border-l-blue-400 dark:border-l-blue-600"
+          : "bg-gray-50 dark:bg-gray-800/50 border-l-2 border-l-gray-300 dark:border-l-gray-600"
       }`}
     >
       {/* Header: role badge + timestamp */}
@@ -576,59 +576,64 @@ Inside the `SessionSlideOver` component, after the existing `selectedEntry` deri
 
 - [ ] **Step 4: Replace the extractor content rendering with renderer lookup**
 
-Find the section where the extractor view renders the entry content. Look for the `{contentMode === "rendered" ? (` block inside the `<div className="px-5 py-4">` wrapper in the extractor view section. Replace the **inner content** of that wrapper div (keep the `px-5 py-4` wrapper intact):
+Find the section where the extractor view renders the entry content. Look for the `<div className="px-5 py-4">` wrapper that contains the `{contentMode === "rendered" ? (` block. Replace the **entire wrapper div** (including the `px-5 py-4` div itself):
 
-From (the content inside `<div className="px-5 py-4">`):
+From:
 ```typescript
-{contentMode === "rendered" ? (
-  <div className="prose prose-sm dark:prose-invert max-w-none">
-    <ReactMarkdown>{selectedEntry.content}</ReactMarkdown>
-  </div>
-) : (
-  <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
-    {selectedEntry.content}
-  </pre>
-)}
+                  <div className="px-5 py-4">
+                    {contentMode === "rendered" ? (
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <ReactMarkdown>{selectedEntry.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                        {selectedEntry.content}
+                      </pre>
+                    )}
+                  </div>
 ```
 
 Replace with:
 ```typescript
-{contentMode === "rendered" ? (
-  (() => {
-    const Renderer = selectedExtractor?.rendererType
-      ? RENDERERS[selectedExtractor.rendererType]
-      : undefined;
-    if (Renderer) {
-      return <Renderer data={selectedEntry.content} />;
-    } else if (selectedExtractor?.rendererType) {
-      return (
-        <div className="px-5 py-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            Unknown renderer: {selectedExtractor.rendererType}
-          </p>
-        </div>
-      );
-    }
-    return (
-      <div className="prose prose-sm dark:prose-invert max-w-none">
-        <ReactMarkdown>{selectedEntry.content}</ReactMarkdown>
-      </div>
-    );
-  })()
-) : (
-  <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
-    {(() => {
-      try {
-        return JSON.stringify(JSON.parse(selectedEntry.content), null, 2);
-      } catch {
-        return selectedEntry.content;
-      }
-    })()}
-  </pre>
-)}
+                  {contentMode === "rendered" ? (
+                    (() => {
+                      const Renderer = selectedExtractor?.rendererType
+                        ? RENDERERS[selectedExtractor.rendererType]
+                        : undefined;
+                      if (Renderer) {
+                        // Custom renderers handle their own padding
+                        return <Renderer data={selectedEntry.content} />;
+                      } else if (selectedExtractor?.rendererType) {
+                        return (
+                          <div className="px-5 py-8 text-center">
+                            <p className="text-sm text-muted-foreground">
+                              Unknown renderer: {selectedExtractor.rendererType}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="px-5 py-4 prose prose-sm dark:prose-invert max-w-none">
+                          <ReactMarkdown>{selectedEntry.content}</ReactMarkdown>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="px-5 py-4">
+                      <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                        {(() => {
+                          try {
+                            return JSON.stringify(JSON.parse(selectedEntry.content), null, 2);
+                          } catch {
+                            return selectedEntry.content;
+                          }
+                        })()}
+                      </pre>
+                    </div>
+                  )}
 ```
 
-Note: The "Raw" mode now pretty-prints JSON content, falling back to as-is for non-JSON (markdown) content.
+Note: The `px-5 py-4` wrapper is now inside each branch rather than wrapping everything. Custom renderers handle their own padding (ConversationRenderer uses `px-4 py-4`). The "Raw" mode pretty-prints JSON content, falling back to as-is for markdown.
 
 - [ ] **Step 5: Verify build**
 

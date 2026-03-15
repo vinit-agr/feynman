@@ -6,7 +6,8 @@
     "ingest:claude": "tsx scripts/ingest-claude-transcripts.ts",
     "ingest:git": "tsx scripts/ingest-git-history.ts",
     "digest:generate": "tsx scripts/generate-digest.ts",
-    "cleanup:claude": "tsx scripts/cleanup-claude-transcripts.ts"
+    "cleanup:claude": "tsx scripts/cleanup-claude-transcripts.ts",
+    "reextract:claude": "tsx scripts/reextract-claude-transcripts.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

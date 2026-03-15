@@ -222,7 +222,7 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
     content,
     tags,
     metadata: {
-      messageCount: messages.length,
+      messageCount: truncatedMessages.length,
       parser: "claude-strip-tools",
       format: "conversation-json",
       ...(projectPath ? { projectPath } : {}),

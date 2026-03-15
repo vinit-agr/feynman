@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { ChevronDown, ChevronRight, Terminal, FileText, ChevronsUpDown } from "lucide-react";
 
@@ -102,14 +102,20 @@ function ToolCallChips({ toolCalls }: { toolCalls: ToolCallSummary[] }) {
 
 function MessageBubble({
   message,
-  forceCollapsed,
+  collapseCommand,
 }: {
   message: ConversationMessage;
-  forceCollapsed?: boolean;
+  collapseCommand: { collapsed: boolean; version: number } | null;
 }) {
   const isHuman = message.role === "human";
-  const [localCollapsed, setLocalCollapsed] = useState(false);
-  const collapsed = forceCollapsed ?? localCollapsed;
+  const [collapsed, setCollapsed] = useState(false);
+
+  // React to collapse/expand all commands from parent
+  useEffect(() => {
+    if (collapseCommand) {
+      setCollapsed(collapseCommand.collapsed);
+    }
+  }, [collapseCommand?.version]);
 
   const wordCount = useMemo(() => countWords(message.text), [message.text]);
 
@@ -128,7 +134,7 @@ function MessageBubble({
     >
       {/* Clickable header */}
       <button
-        onClick={() => setLocalCollapsed(!collapsed)}
+        onClick={() => setCollapsed(!collapsed)}
         className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
       >
         {collapsed ? (
@@ -146,7 +152,7 @@ function MessageBubble({
           {isHuman ? "You" : "Claude"}
         </span>
         <span className="text-xs text-muted-foreground shrink-0">
-          ({wordCount} words)
+          ({wordCount >= 1000 ? `${(wordCount / 1000).toFixed(1)}k` : wordCount} words)
         </span>
         {collapsed && previewText && (
           <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
@@ -186,7 +192,10 @@ interface ConversationRendererProps {
 }
 
 export function ConversationRenderer({ data }: ConversationRendererProps) {
-  const [allCollapsed, setAllCollapsed] = useState<boolean | null>(null);
+  // Track collapse-all commands as { collapsed: boolean, version: number }
+  // Bumping version ensures useEffect fires even for same direction
+  const [collapseCommand, setCollapseCommand] = useState<{ collapsed: boolean; version: number } | null>(null);
+  const [isAllCollapsed, setIsAllCollapsed] = useState(false);
 
   const messages = useMemo(() => {
     try {
@@ -197,15 +206,6 @@ export function ConversationRenderer({ data }: ConversationRendererProps) {
       return null;
     }
   }, [data]);
-
-  const toggleAll = useCallback(() => {
-    setAllCollapsed((prev) => (prev === true ? false : true));
-  }, []);
-
-  // Reset force state when individual messages are clicked
-  const clearForce = useCallback(() => {
-    setAllCollapsed(null);
-  }, []);
 
   if (!messages) {
     return (
@@ -236,11 +236,18 @@ export function ConversationRenderer({ data }: ConversationRendererProps) {
           {messages.length} {messages.length === 1 ? "message" : "messages"}
         </span>
         <button
-          onClick={toggleAll}
+          onClick={() => {
+            const next = !isAllCollapsed;
+            setIsAllCollapsed(next);
+            setCollapseCommand((prev) => ({
+              collapsed: next,
+              version: (prev?.version ?? 0) + 1,
+            }));
+          }}
           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-accent"
         >
           <ChevronsUpDown className="h-3 w-3" />
-          {allCollapsed === true ? "Expand All" : "Collapse All"}
+          {isAllCollapsed ? "Expand All" : "Collapse All"}
         </button>
       </div>
 
@@ -250,7 +257,7 @@ export function ConversationRenderer({ data }: ConversationRendererProps) {
           <MessageBubble
             key={i}
             message={msg}
-            forceCollapsed={allCollapsed ?? undefined}
+            collapseCommand={collapseCommand}
           />
         ))}
       </div>

@@ -143,7 +143,10 @@ function MessageBubble({
               : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
           }`}
         >
-          {isHuman ? "You" : "Claude"} ({formatWordCount(wordCount)})
+          {isHuman ? "You" : "Claude"}
+        </span>
+        <span className="text-xs text-muted-foreground shrink-0">
+          ({wordCount} words)
         </span>
         {collapsed && previewText && (
           <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">

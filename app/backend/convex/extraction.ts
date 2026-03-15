@@ -139,16 +139,26 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
     // Extract timestamp
     const timestamp = typeof record.timestamp === "string" ? record.timestamp : undefined;
 
-    // Extract content blocks
+    // Extract content — can be a string (user messages) or array of blocks (assistant messages)
     const messageContent = record.message as { content?: unknown } | undefined;
     if (!messageContent) continue;
 
-    const contentArr = Array.isArray(messageContent.content)
-      ? (messageContent.content as Array<Record<string, unknown>>)
-      : [];
+    let contentArr: Array<Record<string, unknown>> = [];
+    let directText: string | null = null;
+
+    if (typeof messageContent.content === "string") {
+      // User messages often have content as a plain string
+      directText = messageContent.content;
+    } else if (Array.isArray(messageContent.content)) {
+      contentArr = messageContent.content as Array<Record<string, unknown>>;
+    }
 
     const textParts: string[] = [];
     const toolCalls: ToolCallSummary[] = [];
+
+    if (directText) {
+      textParts.push(directText);
+    }
 
     for (const block of contentArr) {
       if (block.type === "text" && typeof block.text === "string") {

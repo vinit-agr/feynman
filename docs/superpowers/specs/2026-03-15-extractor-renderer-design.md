@@ -103,7 +103,35 @@ The parser currently iterates JSONL records, skips meta/sidechain, extracts text
 
 5. **Preserve timestamps.** Pull `record.timestamp` from each JSONL record and include it in the message object. If `timestamp` is missing or unparseable, omit it from the message object (the field is optional).
 
-6. **Provide a `messagesToReadableText` helper.** Extract a standalone function that converts a `ConversationMessage[]` array into a plain-text string suitable for AI prompt injection (similar to the old markdown format but without tool details). This is needed because the AI extractor ("engineering-decisions") internally calls `parseClaudeStripTools` and injects `parsed.content` into its prompt template. Without this helper, the AI extractor would receive raw JSON instead of readable text. The helper is called by the AI extractor path in `extraction.ts`, not by the parser itself.
+6. **Provide a `messagesToReadableText` helper.** Extract a standalone function that converts a `ConversationMessage[]` array into a plain-text string suitable for AI prompt injection. Output format:
+
+   ```
+   ### Human
+
+   {message text}
+
+   ---
+
+   ### Assistant
+
+   {message text}
+
+   ---
+   ```
+
+   This mirrors the old markdown output (which the AI prompt was designed for) but is generated from the structured data. Tool calls are omitted from this text representation.
+
+   **Where it's called:** In the AI extractor path of `runExtractor` in `extraction.ts` (around line 230-236). Currently the AI path does:
+   ```typescript
+   const parsed = cleanParser(rawText);
+   prompt = prompt.replace(/\{\{content\}\}/g, parsed.content.slice(0, 30_000));
+   ```
+   After the rewrite, `parsed.content` is a JSON string. The AI path must instead do:
+   ```typescript
+   const parsed = cleanParser(rawText);
+   const readableText = messagesToReadableText(JSON.parse(parsed.content));
+   prompt = prompt.replace(/\{\{content\}\}/g, readableText.slice(0, 30_000));
+   ```
 
 ### Title derivation
 
@@ -244,7 +272,7 @@ To support this, the slide-over needs access to the extractor record (not just t
 |------|--------|
 | `app/backend/convex/schema.ts` | Add `rendererType: v.optional(v.string())` to extractors table |
 | `app/backend/convex/extractors.ts` | Add `rendererType: "conversation"` to "project-work-summary" seed |
-| `app/backend/convex/extraction.ts` | Rewrite `parseClaudeStripTools` to output JSON array of ConversationMessage |
+| `app/backend/convex/extraction.ts` | Rewrite `parseClaudeStripTools` to output JSON array of ConversationMessage; add `messagesToReadableText` helper; fix `deriveTitle` role casing; update AI extractor path to use helper |
 | `app/frontend/src/components/knowledge/session-slide-over.tsx` | Add renderer registry and lookup logic |
 | `app/frontend/src/components/knowledge/renderers/conversation-renderer.tsx` | **New:** Chat-bubble renderer for conversation JSON |
 
@@ -252,11 +280,20 @@ To support this, the slide-over needs access to the extractor record (not just t
 
 - Raw JSONL files in Convex storage (untouched)
 - "Raw Transcript" view in the slide-over (unchanged)
-- "engineering-decisions" AI extractor (no rendererType, keeps ReactMarkdown). Note: the AI extractor path in `extraction.ts` must be updated to use `messagesToReadableText()` to convert the structured JSON back to readable text for prompt injection.
+- "engineering-decisions" AI extractor (no rendererType, keeps ReactMarkdown rendering)
 - The Rendered/Raw toggle behavior
-- Title derivation logic (with role casing fix: `"Human"` → `"human"`)
 - Ingestion pipeline (no changes)
 - SessionList component (no changes)
+
+## Implementation ordering
+
+The changes have these dependencies:
+
+1. **Schema first** — add `rendererType` to extractors table in `schema.ts`
+2. **Parser + helpers** — rewrite `parseClaudeStripTools`, add `messagesToReadableText`, fix `deriveTitle` role casing, update AI extractor path — all in `extraction.ts`
+3. **Extractor seed** — add `rendererType: "conversation"` to seed in `extractors.ts` (requires schema from step 1)
+4. **Frontend** — build ConversationRenderer, update SessionSlideOver with renderer registry (can be done in parallel with step 2-3)
+5. **Deploy + re-ingest** — deploy backend, run seed, then `pnpm cleanup:claude && pnpm ingest:claude`
 
 ## Future extensions
 

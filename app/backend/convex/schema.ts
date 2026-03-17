@@ -16,6 +16,7 @@ export default defineSchema({
     embedding: v.optional(v.array(v.float64())),
     rawFileId: v.optional(v.id("rawFiles")),
     extractorName: v.optional(v.string()),
+    topicSegmentation: v.optional(v.any()),  // AI-generated topic analysis
   })
     .index("by_source", ["source", "timestamp"])
     .index("by_source_id", ["source", "sourceId"])

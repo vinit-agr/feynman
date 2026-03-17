@@ -216,11 +216,11 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
 
   // Serialize to JSON, truncating at message boundaries if over 900KB
   // (Convex documents have a 1MB limit; 900KB leaves room for other fields)
-  const MAX_CONTENT_BYTES = 900_000;
+  const MAX_CONTENT_CHARS = 900_000;
   let content: string;
   let truncatedMessages = messages;
   content = JSON.stringify(truncatedMessages);
-  while (content.length > MAX_CONTENT_BYTES && truncatedMessages.length > 1) {
+  while (content.length > MAX_CONTENT_CHARS && truncatedMessages.length > 1) {
     truncatedMessages = truncatedMessages.slice(0, -1);
     content = JSON.stringify(truncatedMessages);
   }
@@ -700,7 +700,7 @@ export const runTopicSegmentation = internalAction({
     const anthropic = new Anthropic();
 
     // 4. Pass 1: Topic Boundary Detection
-    const chunks = chunkMessages(messages, SINGLE_CALL_TOKEN_LIMIT, CHUNK_OVERLAP_TOKENS);
+    const chunks = chunkMessages(messages, CHUNK_TARGET_TOKENS, CHUNK_OVERLAP_TOKENS);
     const chunkResults: Array<{ boundaries: RawBoundary[]; globalStartIndex: number }> = [];
 
     for (const chunk of chunks) {

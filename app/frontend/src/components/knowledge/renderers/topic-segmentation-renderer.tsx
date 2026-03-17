@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, ChevronsUpDown, MessageSquare } from "lucide-react";
 import {
   MessageBubble,
-  ToolCallChips,
   type ConversationMessage,
 } from "./conversation-renderer";
 
@@ -112,7 +111,7 @@ function TopicAccordion({
       setExpanded(forceState.expanded);
       if (!forceState.expanded) setShowMessages(false);
     }
-  }, [forceState?.version]);
+  }, [forceState]);
 
   const messageCount = topic.messageRange.end - topic.messageRange.start + 1;
   const topicMessages = messages.slice(

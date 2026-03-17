@@ -138,6 +138,7 @@ export default defineSchema({
     projectName: v.optional(v.string()),
     sessionId: v.optional(v.string()),
     fileName: v.string(),
+    displayName: v.optional(v.string()),     // User-set session name (overrides extracted title)
     localFileSize: v.number(),
     localModifiedAt: v.number(),
     timestamp: v.number(),                     // file mtime at upload

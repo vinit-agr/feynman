@@ -328,6 +328,22 @@ export const moveToProject = mutation({
   },
 });
 
+export const renameSession = mutation({
+  args: {
+    rawFileId: v.id("rawFiles"),
+    displayName: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const rawFile = await ctx.db.get(args.rawFileId);
+    if (!rawFile) throw new Error("Raw file not found");
+    await ctx.db.patch(args.rawFileId, {
+      displayName: args.displayName.trim() || undefined,
+    });
+    return null;
+  },
+});
+
 export const softDelete = mutation({
   args: {
     rawFileId: v.id("rawFiles"),

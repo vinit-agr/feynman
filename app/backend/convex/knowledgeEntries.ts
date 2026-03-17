@@ -221,6 +221,13 @@ export const getTitlesByRawFileIds = query({
   handler: async (ctx, args) => {
     const result: Record<string, string> = {};
     for (const rawFileId of args.rawFileIds) {
+      // Prefer user-set displayName on the rawFile
+      const rawFile = await ctx.db.get(rawFileId);
+      if (rawFile?.displayName) {
+        result[rawFileId] = rawFile.displayName;
+        continue;
+      }
+      // Fall back to extracted title from knowledgeEntries
       const entry = await ctx.db
         .query("knowledgeEntries")
         .withIndex("by_rawFile_extractor", (q) => q.eq("rawFileId", rawFileId))

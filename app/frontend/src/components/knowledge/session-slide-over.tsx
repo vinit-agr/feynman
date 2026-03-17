@@ -140,8 +140,9 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
     ? extractorList.find((ex: any) => ex.name === selectedView)
     : null;
 
-  // Derive title from the first completed extraction entry, or fall back to fileName
-  const title = entryList.length > 0 ? entryList[0].title : rawFile.fileName;
+  // Derive title: user-set displayName > extracted title > fileName
+  const title = rawFile.displayName
+    ?? (entryList.length > 0 ? entryList[0].title : rawFile.fileName);
 
   return (
     <>

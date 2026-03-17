@@ -126,6 +126,17 @@ export function SessionList({
     await deleteProject({ projectId: projectId as Id<"projects"> });
   }
 
+  const renameSession = useMutation(api.rawFiles.renameSession);
+
+  async function handleContextRename(rawFileId: string, currentName: string) {
+    const newName = prompt("Rename session:", currentName);
+    if (newName === null || !newName.trim()) return;
+    await renameSession({
+      rawFileId: rawFileId as Id<"rawFiles">,
+      displayName: newName.trim(),
+    });
+  }
+
   async function handleContextDelete(rawFileId: string, fileName: string) {
     const confirmed = confirm(
       `Delete session '${fileName}'? The transcript will be hidden and extracted content will be removed. You can recover the transcript later, but extraction will need to be re-run.`
@@ -277,6 +288,7 @@ export function SessionList({
           file={contextMenu.file}
           projects={projectList}
           onClose={() => setContextMenu(null)}
+          onRename={handleContextRename}
           onMoveTo={handleContextMoveTo}
           onDelete={handleContextDelete}
           onCreateAndMove={handleContextCreateAndMove}
@@ -294,6 +306,7 @@ interface ContextMenuProps {
   file: any;
   projects: any[];
   onClose: () => void;
+  onRename: (rawFileId: string, currentName: string) => void;
   onMoveTo: (rawFileId: string, projectId: string) => void;
   onDelete: (rawFileId: string, fileName: string) => void;
   onCreateAndMove: (rawFileId: string) => void;
@@ -305,6 +318,7 @@ function SessionContextMenu({
   file,
   projects,
   onClose,
+  onRename,
   onMoveTo,
   onDelete,
   onCreateAndMove,
@@ -324,6 +338,12 @@ function SessionContextMenu({
       style={{ left: x, top: y }}
       onClick={(e) => e.stopPropagation()}
     >
+      <button
+        onClick={() => { onRename(file._id, file.displayName ?? file.fileName); onClose(); }}
+        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+      >
+        Rename
+      </button>
       <div
         className="relative"
         onMouseEnter={() => setShowMoveSubmenu(true)}
@@ -514,7 +534,7 @@ interface SessionRowProps {
 }
 
 function SessionRow({ file, onClick, isSelected, displayTitle, onContextMenu }: SessionRowProps) {
-  const title = displayTitle ?? file.fileName;
+  const title = file.displayName ?? displayTitle ?? file.fileName;
 
   return (
     <div

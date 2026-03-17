@@ -5,8 +5,9 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@backend/convex/_generated/api";
 import type { Id } from "@backend/convex/_generated/dataModel";
 import ReactMarkdown from "react-markdown";
-import { X, ChevronDown, ChevronRight, Pencil } from "lucide-react";
+import { X, ChevronDown, ChevronRight, Pencil, Sparkles, Loader2 } from "lucide-react";
 import { ConversationRenderer } from "@/components/knowledge/renderers/conversation-renderer";
+import { TopicSegmentationRenderer } from "@/components/knowledge/renderers/topic-segmentation-renderer";
 
 // Renderer registry — maps rendererType to a component that handles that format
 const RENDERERS: Record<string, React.ComponentType<{ data: string }>> = {
@@ -65,6 +66,23 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
   const extractorList = extractors ?? [];
   const entryList = entries ?? [];
 
+  // Live query for rawFile status (props may be a stale snapshot)
+  const liveRawFile = useQuery(api.rawFiles.getByIdPublic, {
+    id: rawFile._id as Id<"rawFiles">,
+  });
+  const currentRawFile = liveRawFile ?? rawFile;
+
+  // Topic segmentation trigger
+  const triggerTopicSegmentation = useMutation(api.rawFiles.triggerTopicSegmentation);
+
+  // Detect topic segmentation status
+  const topicSegStatus = (currentRawFile.extractionResults ?? []).find(
+    (r: any) => r.extractorName === "topic-segmentation"
+  );
+  const isAnalyzing =
+    topicSegStatus?.status === "pending" || topicSegStatus?.status === "running";
+  const analysisFailed = topicSegStatus?.status === "failed";
+
   // View modes: extractor name or "raw"
   const [selectedView, setSelectedView] = useState<string>("");
   const [contentMode, setContentMode] = useState<"rendered" | "raw">("rendered");
@@ -85,12 +103,16 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
       : "skip"
   );
 
-  // Default to first extractor when data loads
+  // Default to first extractor when data loads, or topic-summary if available
   useEffect(() => {
     if (extractorList.length > 0 && !selectedView) {
-      setSelectedView(extractorList[0].name);
+      if (hasTopicSegmentation) {
+        setSelectedView("topic-summary");
+      } else {
+        setSelectedView(extractorList[0].name);
+      }
     }
-  }, [extractorList.length]);
+  }, [extractorList.length, hasTopicSegmentation]);
 
   // Fetch raw file content when "raw" view is selected
   useEffect(() => {
@@ -139,6 +161,12 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
   const selectedExtractor = selectedView !== "raw"
     ? extractorList.find((ex: any) => ex.name === selectedView)
     : null;
+
+  // Check if topic segmentation data exists
+  const workSummaryEntry = entryList.find(
+    (e: any) => e.extractorName === "project-work-summary"
+  );
+  const hasTopicSegmentation = !!workSummaryEntry?.topicSegmentation;
 
   // Derive title: user-set displayName > extracted title > fileName
   const title = rawFile.displayName
@@ -222,7 +250,7 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
           </div>
 
           {/* View selector */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-muted-foreground">View:</span>
             <select
               value={selectedView}
@@ -232,6 +260,9 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
               }}
               className="text-sm border rounded-md px-2 py-1 bg-background min-w-[200px]"
             >
+              {hasTopicSegmentation && (
+                <option value="topic-summary">Topic Summary</option>
+              )}
               {extractorList.map((ex: any) => (
                 <option key={ex.name} value={ex.name}>
                   {ex.displayName}
@@ -239,12 +270,55 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
               ))}
               <option value="raw">Raw Transcript</option>
             </select>
+            <button
+              onClick={() =>
+                triggerTopicSegmentation({
+                  rawFileId: rawFile._id as Id<"rawFiles">,
+                })
+              }
+              disabled={isAnalyzing}
+              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border transition-colors ${
+                isAnalyzing
+                  ? "opacity-50 cursor-not-allowed"
+                  : analysisFailed
+                    ? "border-destructive/50 text-destructive hover:bg-destructive/10"
+                    : "hover:bg-accent"
+              }`}
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Analyzing...
+                </>
+              ) : analysisFailed ? (
+                <>
+                  <Sparkles className="h-3 w-3" />
+                  Retry Analysis
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3 w-3" />
+                  Analyze Topics
+                </>
+              )}
+            </button>
           </div>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          {selectedView === "raw" ? (
+          {selectedView === "topic-summary" && workSummaryEntry?.topicSegmentation ? (
+            <TopicSegmentationRenderer
+              topicSegmentation={workSummaryEntry.topicSegmentation}
+              conversationMessages={(() => {
+                try {
+                  return JSON.parse(workSummaryEntry.content);
+                } catch {
+                  return [];
+                }
+              })()}
+            />
+          ) : selectedView === "raw" ? (
             // Raw transcript view
             <>
               {!rawFile.storageId ? (

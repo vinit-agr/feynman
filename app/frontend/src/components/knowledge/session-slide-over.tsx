@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useQuery } from "convex/react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@backend/convex/_generated/api";
 import type { Id } from "@backend/convex/_generated/dataModel";
 import ReactMarkdown from "react-markdown";
-import { X, ChevronDown, ChevronRight } from "lucide-react";
+import { X, ChevronDown, ChevronRight, Pencil } from "lucide-react";
 import { ConversationRenderer } from "@/components/knowledge/renderers/conversation-renderer";
 
 // Renderer registry — maps rendererType to a component that handles that format
@@ -144,6 +144,28 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
   const title = rawFile.displayName
     ?? (entryList.length > 0 ? entryList[0].title : rawFile.fileName);
 
+  // Inline rename state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
+  const renameSession = useMutation(api.rawFiles.renameSession);
+
+  function startEditing() {
+    setEditValue(title);
+    setIsEditing(true);
+    setTimeout(() => editInputRef.current?.select(), 0);
+  }
+
+  async function commitRename() {
+    setIsEditing(false);
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed === title) return;
+    await renameSession({
+      rawFileId: rawFile._id as Id<"rawFiles">,
+      displayName: trimmed,
+    });
+  }
+
   return (
     <>
       <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
@@ -153,9 +175,34 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
         <div className="px-5 py-4 border-b space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0 space-y-1">
-              <h2 className="text-base font-semibold leading-snug truncate">
-                {title}
-              </h2>
+              {isEditing ? (
+                <input
+                  ref={editInputRef}
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitRename();
+                    if (e.key === "Escape") setIsEditing(false);
+                  }}
+                  className="text-base font-semibold leading-snug w-full bg-transparent border-b-2 border-primary/40 focus:border-primary outline-none py-0.5 -mb-0.5 transition-colors"
+                />
+              ) : (
+                <h2
+                  className="text-base font-semibold leading-snug truncate group/title cursor-pointer flex items-center gap-1.5"
+                  onDoubleClick={startEditing}
+                  title="Double-click to rename"
+                >
+                  <span className="truncate">{title}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); startEditing(); }}
+                    className="shrink-0 p-0.5 rounded opacity-0 group-hover/title:opacity-100 hover:bg-accent transition-all"
+                  >
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </h2>
+              )}
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 {rawFile.sessionId && (
                   <span title={rawFile.sessionId}>

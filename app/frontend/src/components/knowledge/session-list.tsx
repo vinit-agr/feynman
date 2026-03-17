@@ -46,6 +46,7 @@ export function SessionList({
     x: number;
     y: number;
     file: any;
+    title: string;
   } | null>(null);
 
   const projects = useQuery(api.projects.listBySource, { source });
@@ -128,8 +129,8 @@ export function SessionList({
 
   const renameSession = useMutation(api.rawFiles.renameSession);
 
-  async function handleContextRename(rawFileId: string, currentName: string) {
-    const newName = prompt("Rename session:", currentName);
+  async function handleContextRename(rawFileId: string, currentTitle: string) {
+    const newName = prompt("Rename session:", currentTitle);
     if (newName === null || !newName.trim()) return;
     await renameSession({
       rawFileId: rawFileId as Id<"rawFiles">,
@@ -208,8 +209,8 @@ export function SessionList({
                         onRenameSubmit={() => handleRenameSubmit(project._id)}
                         onRenameCancel={() => setRenamingProject(null)}
                         onDelete={(count) => handleDeleteProject(project._id, project.name, count)}
-                        onContextMenu={(e: React.MouseEvent, file: any) => {
-                          setContextMenu({ x: e.clientX, y: e.clientY, file });
+                        onContextMenu={(e: React.MouseEvent, file: any, displayTitle: string) => {
+                          setContextMenu({ x: e.clientX, y: e.clientY, file, title: displayTitle });
                         }}
                       />
                     </div>
@@ -257,8 +258,8 @@ export function SessionList({
                                 file={file}
                                 onClick={() => onSessionClick(file)}
                                 isSelected={selectedSessionId === file._id}
-                                onContextMenu={(e: React.MouseEvent, file: any) => {
-                                  setContextMenu({ x: e.clientX, y: e.clientY, file });
+                                onContextMenu={(e: React.MouseEvent, file: any, displayTitle: string) => {
+                                  setContextMenu({ x: e.clientX, y: e.clientY, file, title: displayTitle });
                                 }}
                               />
                             </div>
@@ -288,7 +289,7 @@ export function SessionList({
           file={contextMenu.file}
           projects={projectList}
           onClose={() => setContextMenu(null)}
-          onRename={handleContextRename}
+          onRename={(rawFileId) => handleContextRename(rawFileId, contextMenu!.title)}
           onMoveTo={handleContextMoveTo}
           onDelete={handleContextDelete}
           onCreateAndMove={handleContextCreateAndMove}
@@ -306,7 +307,7 @@ interface ContextMenuProps {
   file: any;
   projects: any[];
   onClose: () => void;
-  onRename: (rawFileId: string, currentName: string) => void;
+  onRename: (rawFileId: string) => void;
   onMoveTo: (rawFileId: string, projectId: string) => void;
   onDelete: (rawFileId: string, fileName: string) => void;
   onCreateAndMove: (rawFileId: string) => void;
@@ -339,7 +340,7 @@ function SessionContextMenu({
       onClick={(e) => e.stopPropagation()}
     >
       <button
-        onClick={() => { onRename(file._id, file.displayName ?? file.fileName); onClose(); }}
+        onClick={() => { onRename(file._id); onClose(); }}
         className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
       >
         Rename
@@ -400,7 +401,7 @@ interface ProjectAccordionProps {
   onRenameSubmit: () => void;
   onRenameCancel: () => void;
   onDelete: (sessionCount: number) => void;
-  onContextMenu: (e: React.MouseEvent, file: any) => void;
+  onContextMenu: (e: React.MouseEvent, file: any, title: string) => void;
 }
 
 function ProjectAccordion({
@@ -530,7 +531,7 @@ interface SessionRowProps {
   onClick: () => void;
   isSelected: boolean;
   displayTitle?: string;
-  onContextMenu?: (e: React.MouseEvent, file: any) => void;
+  onContextMenu?: (e: React.MouseEvent, file: any, title: string) => void;
 }
 
 function SessionRow({ file, onClick, isSelected, displayTitle, onContextMenu }: SessionRowProps) {
@@ -541,7 +542,7 @@ function SessionRow({ file, onClick, isSelected, displayTitle, onContextMenu }: 
       onClick={onClick}
       onContextMenu={(e) => {
         e.preventDefault();
-        onContextMenu?.(e, file);
+        onContextMenu?.(e, file, title);
       }}
       className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-accent/50 transition-colors ${
         isSelected ? "bg-accent" : ""
@@ -557,7 +558,7 @@ function SessionRow({ file, onClick, isSelected, displayTitle, onContextMenu }: 
       <button
         onClick={(e) => {
           e.stopPropagation();
-          onContextMenu?.(e, file);
+          onContextMenu?.(e, file, title);
         }}
         className="shrink-0 p-1 rounded hover:bg-accent transition-colors text-muted-foreground"
       >

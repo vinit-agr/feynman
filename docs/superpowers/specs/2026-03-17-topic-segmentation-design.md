@@ -274,7 +274,7 @@ If the user has already manually renamed the session (set `displayName`), the AI
 
 **File:** `app/backend/convex/extraction.ts`
 
-A new internalAction that implements the 3-pass pipeline:
+A new internalAction that implements the 3-pass pipeline. Note: `extraction.ts` already has `"use node"` at the top (required for Convex actions that use Node.js APIs like the Anthropic SDK), so no additional directive is needed.
 
 ```typescript
 export const runTopicSegmentation = internalAction({

@@ -31,10 +31,18 @@ Results are stored in a new `topicSegmentation` field on the existing knowledgeE
 
 ### Overview
 
-The pipeline operates on the `ConversationMessage[]` array already extracted by the mechanical parser and stored in the knowledgeEntry's `content` field. It does NOT re-read the raw JSONL — it builds on the existing mechanical extraction.
+The pipeline needs the full `ConversationMessage[]` array for the session. The mechanical parser's `content` field may be truncated for large sessions (capped at 50K chars, dropping trailing messages). Therefore:
+
+**For the AI pipeline, `runTopicSegmentation` re-parses the raw JSONL from Convex file storage** (using the same `parseClaudeStripTools` parser but without the 50K truncation) to get the complete message array. This ensures topic segmentation covers the full conversation. The re-parsed messages are used only for the AI pipeline — the stored `content` field is not modified.
 
 ```
-ConversationMessage[] (from content field)
+Raw JSONL (from Convex file storage via rawFile.storageId)
+        │
+        ▼
+   parseClaudeStripTools (no truncation)
+        │
+        ▼
+   Full ConversationMessage[]
         │
         ▼
    Pass 1: Topic Boundary Detection
@@ -187,6 +195,19 @@ Respond with ONLY the title text, no quotes, no other text.
   - Pass 3: 256 (just a title)
 - **Temperature:** 0 (deterministic, reproducible results)
 
+### Pass 2: Large Topic Handling
+
+If a single topic's messages exceed ~80K tokens (rare but possible for long debugging sessions), the Pass 2 prompt would exceed model context. In this case, truncate assistant messages to the first 1000 characters each for the summarization prompt. Human messages are kept in full (they're typically short). This preserves enough context for a good summary while fitting within limits.
+
+### Error Handling
+
+The pipeline uses an **all-or-nothing** approach for v1:
+
+- **JSON parsing failures:** Each Claude API response is parsed with try/catch. If parsing fails, retry the specific API call once with a slightly modified prompt (adding "Remember: respond with ONLY valid JSON"). If it fails again, the entire pipeline fails.
+- **Partial failures in Pass 2:** If any topic's summarization call fails after retries, the entire pipeline fails. No partial results are stored.
+- **Rate limiting:** The workpool's built-in retry logic (3 attempts with exponential backoff) handles transient API errors. If all retries are exhausted, the pipeline fails and the extractionResult status is set to "failed" with an error message.
+- **Full pipeline retries:** When the workpool retries the action, it restarts from scratch (re-running all API calls). This is acceptable for v1 — the pipeline is idempotent.
+
 ---
 
 ## Data Model
@@ -260,17 +281,18 @@ export const runTopicSegmentation = internalAction({
   args: {
     rawFileId: v.id("rawFiles"),
   },
-  returns: v.object({ topicCount: v.number() }),
+  returns: v.object({ entryCount: v.number() }),
   handler: async (ctx, { rawFileId }) => {
-    // 1. Fetch rawFile
-    // 2. Fetch the project-work-summary knowledgeEntry for this rawFile
-    // 3. Parse content field into ConversationMessage[]
-    // 4. Run Pass 1 (chunked if needed)
-    // 5. Run Pass 2 for each topic
-    // 6. Run Pass 3
-    // 7. Patch knowledgeEntry with topicSegmentation
-    // 8. Optionally update rawFile.displayName
-    // Return { topicCount }
+    // 1. Fetch rawFile + its storageId
+    // 2. Fetch raw JSONL from storage, re-parse with parseClaudeStripTools (no truncation)
+    // 3. Run Pass 1: topic boundary detection (chunked if > 80K tokens)
+    // 4. Run Pass 2: per-topic summarization (one API call per topic)
+    //    - If a single topic's messages exceed 80K tokens, truncate assistant messages
+    //      to first 1000 chars each for the summarization prompt
+    // 5. Run Pass 3: session title synthesis
+    // 6. Call patchTopicSegmentation with extractorName: "project-work-summary"
+    // 7. If rawFile.displayName is not set, call setDisplayName to update it
+    // Return { entryCount: topics.length }
   },
 });
 ```
@@ -311,6 +333,31 @@ export const patchTopicSegmentation = internalMutation({
 });
 ```
 
+### New internalMutation: `setDisplayName`
+
+**File:** `app/backend/convex/rawFiles.ts`
+
+Needed because `runTopicSegmentation` is an `internalAction` — it can only call `internalMutation` via `ctx.runMutation`, not public mutations. The existing `renameSession` is a public `mutation` and cannot be called from an action context.
+
+```typescript
+export const setDisplayName = internalMutation({
+  args: {
+    rawFileId: v.id("rawFiles"),
+    displayName: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const rawFile = await ctx.db.get(args.rawFileId);
+    if (!rawFile) return null;
+    // Only set if user hasn't manually named it
+    if (!rawFile.displayName) {
+      await ctx.db.patch(args.rawFileId, { displayName: args.displayName });
+    }
+    return null;
+  },
+});
+```
+
 ### New Mutation: `triggerTopicSegmentation`
 
 **File:** `app/backend/convex/rawFiles.ts`
@@ -324,6 +371,14 @@ export const triggerTopicSegmentation = mutation({
   handler: async (ctx, args) => {
     const rawFile = await ctx.db.get(args.rawFileId);
     if (!rawFile) throw new Error("Raw file not found");
+
+    // Guard against concurrent runs
+    const existing = (rawFile.extractionResults ?? []).find(
+      (r) => r.extractorName === "topic-segmentation"
+    );
+    if (existing && (existing.status === "pending" || existing.status === "running")) {
+      return null; // Already in progress
+    }
 
     // Add/reset "topic-segmentation" in extractionResults
     const results = [...(rawFile.extractionResults ?? [])];
@@ -379,7 +434,7 @@ The View dropdown currently lists all extractors from `api.extractors.list` + "R
 
 - **"Topic Summary"** — only shown when the knowledgeEntry for `project-work-summary` has `topicSegmentation` populated (non-null)
 - When selected, the slide-over renders `TopicSegmentationRenderer` instead of `ConversationRenderer`
-- **Becomes the default view** when available (it's the most useful view after AI extraction)
+- **Becomes the default view** when available. The existing `useEffect` that sets `selectedView` to the first extractor (around line 89-93 of `session-slide-over.tsx`) should be updated: if the `project-work-summary` entry has `topicSegmentation` populated, default to `"topic-summary"` instead of the first extractor name
 
 ### TopicSegmentationRenderer Component
 
@@ -421,7 +476,7 @@ interface TopicSegmentationRendererProps {
 
 **File:** `app/frontend/src/components/knowledge/renderers/conversation-renderer.tsx`
 
-Export `MessageBubble` and `ToolCallChips` so the topic segmentation renderer can reuse them for rendering the actual conversation messages within each topic.
+Add the `export` keyword to `MessageBubble` and `ToolCallChips` function declarations (currently plain `function`, not exported) so the topic segmentation renderer can import and reuse them.
 
 ---
 
@@ -431,7 +486,7 @@ Export `MessageBubble` and `ToolCallChips` so the topic segmentation renderer ca
 |------|--------|
 | `app/backend/convex/schema.ts` | Add `topicSegmentation: v.optional(v.any())` to knowledgeEntries |
 | `app/backend/convex/extraction.ts` | Add `runTopicSegmentation` internalAction + helper functions for chunking, formatting, merging |
-| `app/backend/convex/rawFiles.ts` | Add `triggerTopicSegmentation` mutation |
+| `app/backend/convex/rawFiles.ts` | Add `triggerTopicSegmentation` mutation (with concurrent-run guard) + `setDisplayName` internalMutation |
 | `app/backend/convex/knowledgeEntries.ts` | Add `patchTopicSegmentation` internalMutation |
 | `app/frontend/src/components/knowledge/session-slide-over.tsx` | Add "Analyze Topics" button, status tracking, "Topic Summary" view option |
 | `app/frontend/src/components/knowledge/renderers/topic-segmentation-renderer.tsx` | **New:** Accordion-based topic view with summaries + embedded messages |

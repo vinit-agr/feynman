@@ -103,6 +103,12 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
       : "skip"
   );
 
+  // Check if topic segmentation data exists (needed before useEffect below)
+  const workSummaryEntry = entryList.find(
+    (e: any) => e.extractorName === "project-work-summary"
+  );
+  const hasTopicSegmentation = !!workSummaryEntry?.topicSegmentation;
+
   // Default to first extractor when data loads, or topic-summary if available
   useEffect(() => {
     if (extractorList.length > 0 && !selectedView) {
@@ -161,12 +167,6 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
   const selectedExtractor = selectedView !== "raw"
     ? extractorList.find((ex: any) => ex.name === selectedView)
     : null;
-
-  // Check if topic segmentation data exists
-  const workSummaryEntry = entryList.find(
-    (e: any) => e.extractorName === "project-work-summary"
-  );
-  const hasTopicSegmentation = !!workSummaryEntry?.topicSegmentation;
 
   // Derive title: user-set displayName > extracted title > fileName
   const title = rawFile.displayName

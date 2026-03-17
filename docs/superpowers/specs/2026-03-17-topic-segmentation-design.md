@@ -33,16 +33,12 @@ Results are stored in a new `topicSegmentation` field on the existing knowledgeE
 
 The pipeline needs the full `ConversationMessage[]` array for the session. The mechanical parser's `content` field may be truncated for large sessions (capped at 50K chars, dropping trailing messages). Therefore:
 
-**For the AI pipeline, `runTopicSegmentation` re-parses the raw JSONL from Convex file storage** (using the same `parseClaudeStripTools` parser but without the 50K truncation) to get the complete message array. This ensures topic segmentation covers the full conversation. The re-parsed messages are used only for the AI pipeline — the stored `content` field is not modified.
+**To ensure the AI pipeline always operates on the complete conversation, the 50K character truncation in `parseClaudeStripTools` should be removed.** The real constraint is Convex's 1MB document size limit, and conversations rarely exceed ~200KB of serialized JSON. This also fixes a subtle issue: `topicSegmentation.messageRange` indexes must match the `ConversationMessage[]` array in `content` — if `content` were truncated, indexes from the AI pipeline (which needs the full conversation) would be out of bounds for the renderer.
+
+**Implementation:** Add an optional `maxContentLength` parameter to `parseClaudeStripTools` (defaulting to `undefined` = no limit). Remove the hardcoded 50K cap. As a safety net, if the serialized JSON exceeds 900KB (leaving room for other fields within the 1MB document limit), truncate at message boundaries and log a warning.
 
 ```
-Raw JSONL (from Convex file storage via rawFile.storageId)
-        │
-        ▼
-   parseClaudeStripTools (no truncation)
-        │
-        ▼
-   Full ConversationMessage[]
+ConversationMessage[] (from content field — now untruncated)
         │
         ▼
    Pass 1: Topic Boundary Detection
@@ -133,6 +129,15 @@ Respond with ONLY the JSON array, no other text.
 2. Concatenate all boundary arrays
 3. For the overlap region: if both chunks agree on a boundary (within ±2 messages), keep it; if only one chunk reports a boundary in the overlap, keep it but mark as lower confidence
 4. Rebuild the contiguous boundary array ensuring full coverage (no gaps, no overlaps)
+
+**Boundary validation (always runs, chunked or not):**
+After Pass 1 produces the boundary array, validate and repair:
+1. Sort topics by `startIndex`
+2. If `topics[0].startIndex !== 0`, set it to 0
+3. If `topics[last].endIndex !== totalMessages - 1`, set it to `totalMessages - 1`
+4. Check for gaps: if `topics[i].endIndex + 1 !== topics[i+1].startIndex`, extend the earlier topic's `endIndex` to fill the gap
+5. Check for overlaps: if `topics[i].endIndex >= topics[i+1].startIndex`, set `topics[i].endIndex = topics[i+1].startIndex - 1`
+This ensures every message belongs to exactly one topic, even if Claude's output has minor off-by-one errors.
 
 ### Pass 2: Per-topic Summarization
 
@@ -283,8 +288,8 @@ export const runTopicSegmentation = internalAction({
   },
   returns: v.object({ entryCount: v.number() }),
   handler: async (ctx, { rawFileId }) => {
-    // 1. Fetch rawFile + its storageId
-    // 2. Fetch raw JSONL from storage, re-parse with parseClaudeStripTools (no truncation)
+    // 1. Fetch rawFile
+    // 2. Fetch the project-work-summary knowledgeEntry, parse content into ConversationMessage[]
     // 3. Run Pass 1: topic boundary detection (chunked if > 80K tokens)
     // 4. Run Pass 2: per-topic summarization (one API call per topic)
     //    - If a single topic's messages exceed 80K tokens, truncate assistant messages
@@ -426,7 +431,7 @@ Add below the View dropdown:
   - Complete: Button stays available for re-analysis; view dropdown now includes "Topic Summary"
   - Failed: `⚠️ Analysis Failed` — shows error, button re-enabled for retry
 
-- **Status detection:** The slide-over already queries `rawFile` (which has `extractionResults`). Check for `extractionResults.find(r => r.extractorName === "topic-segmentation")?.status`.
+- **Status detection:** The slide-over currently receives `rawFile` as a prop (a snapshot). To show live extraction progress, add a `useQuery(api.rawFiles.getBySourceId, ...)` call inside the slide-over that subscribes to the rawFile document. This gives real-time status updates via Convex's reactive queries. Check `extractionResults.find(r => r.extractorName === "topic-segmentation")?.status` on the live data. Note: a `getById` public query may need to be added to `rawFiles.ts` (currently only `getById` is an `internalQuery`).
 
 ### View Dropdown: "Topic Summary" Option
 
@@ -485,8 +490,8 @@ Add the `export` keyword to `MessageBubble` and `ToolCallChips` function declara
 | File | Change |
 |------|--------|
 | `app/backend/convex/schema.ts` | Add `topicSegmentation: v.optional(v.any())` to knowledgeEntries |
-| `app/backend/convex/extraction.ts` | Add `runTopicSegmentation` internalAction + helper functions for chunking, formatting, merging |
-| `app/backend/convex/rawFiles.ts` | Add `triggerTopicSegmentation` mutation (with concurrent-run guard) + `setDisplayName` internalMutation |
+| `app/backend/convex/extraction.ts` | Remove 50K truncation cap from `parseClaudeStripTools` (use 900KB safety limit instead); add `runTopicSegmentation` internalAction + helper functions for chunking, formatting, boundary validation, merging |
+| `app/backend/convex/rawFiles.ts` | Add `triggerTopicSegmentation` mutation (with concurrent-run guard) + `setDisplayName` internalMutation + `getByIdPublic` query (for live status in slide-over) |
 | `app/backend/convex/knowledgeEntries.ts` | Add `patchTopicSegmentation` internalMutation |
 | `app/frontend/src/components/knowledge/session-slide-over.tsx` | Add "Analyze Topics" button, status tracking, "Topic Summary" view option |
 | `app/frontend/src/components/knowledge/renderers/topic-segmentation-renderer.tsx` | **New:** Accordion-based topic view with summaries + embedded messages |

@@ -270,38 +270,33 @@ export function SessionSlideOver({ rawFile, onClose }: SessionSlideOverProps) {
               ))}
               <option value="raw">Raw Transcript</option>
             </select>
-            <button
-              onClick={() =>
-                triggerTopicSegmentation({
-                  rawFileId: rawFile._id as Id<"rawFiles">,
-                })
-              }
-              disabled={isAnalyzing}
-              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border transition-colors ${
-                isAnalyzing
-                  ? "opacity-50 cursor-not-allowed"
-                  : analysisFailed
+            {hasTopicSegmentation ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground px-2.5 py-1.5">
+                <Sparkles className="h-3 w-3" />
+                Topics analyzed
+              </span>
+            ) : isAnalyzing ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground px-2.5 py-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Analyzing...
+              </span>
+            ) : (
+              <button
+                onClick={() =>
+                  triggerTopicSegmentation({
+                    rawFileId: rawFile._id as Id<"rawFiles">,
+                  })
+                }
+                className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border transition-colors ${
+                  analysisFailed
                     ? "border-destructive/50 text-destructive hover:bg-destructive/10"
                     : "hover:bg-accent"
-              }`}
-            >
-              {isAnalyzing ? (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Analyzing...
-                </>
-              ) : analysisFailed ? (
-                <>
-                  <Sparkles className="h-3 w-3" />
-                  Retry Analysis
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3 w-3" />
-                  Analyze Topics
-                </>
-              )}
-            </button>
+                }`}
+              >
+                <Sparkles className="h-3 w-3" />
+                {analysisFailed ? "Retry Analysis" : "Analyze Topics"}
+              </button>
+            )}
           </div>
         </div>
 

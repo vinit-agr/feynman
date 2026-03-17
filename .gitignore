@@ -67,3 +67,4 @@ Thumbs.db
 # Misc
 .cache/
 *.log
+.worktrees/

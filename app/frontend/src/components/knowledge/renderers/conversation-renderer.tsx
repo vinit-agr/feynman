@@ -8,14 +8,14 @@ import { ChevronDown, ChevronRight, Terminal, FileText, ChevronsUpDown } from "l
 // Types (mirrors backend ConversationMessage)
 // ---------------------------------------------------------------------------
 
-interface ConversationMessage {
+export interface ConversationMessage {
   role: "human" | "assistant";
   text: string;
   timestamp?: string;
   toolCalls?: ToolCallSummary[];
 }
 
-interface ToolCallSummary {
+export interface ToolCallSummary {
   tool: string;
   shortDescription: string;
 }
@@ -58,7 +58,7 @@ function toolIcon(tool: string) {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function ToolCallChips({ toolCalls }: { toolCalls: ToolCallSummary[] }) {
+export function ToolCallChips({ toolCalls }: { toolCalls: ToolCallSummary[] }) {
   const [expanded, setExpanded] = useState(false);
 
   if (toolCalls.length === 0) return null;
@@ -100,7 +100,7 @@ function ToolCallChips({ toolCalls }: { toolCalls: ToolCallSummary[] }) {
   );
 }
 
-function MessageBubble({
+export function MessageBubble({
   message,
   collapseCommand,
 }: {

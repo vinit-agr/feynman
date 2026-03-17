@@ -244,6 +244,285 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
 }
 
 // ---------------------------------------------------------------------------
+// Topic Segmentation Helpers
+// ---------------------------------------------------------------------------
+
+const SINGLE_CALL_TOKEN_LIMIT = 80_000;
+const CHUNK_TARGET_TOKENS = 60_000;
+const CHUNK_OVERLAP_TOKENS = 20_000;
+const LARGE_TOPIC_TOKEN_LIMIT = 80_000;
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function formatMessagesForBoundaryDetection(
+  messages: ConversationMessage[],
+  globalStartIndex: number = 0
+): string {
+  return messages
+    .map((m, i) => {
+      const idx = globalStartIndex + i;
+      const role = m.role === "human" ? "Human" : "Assistant";
+      const ts = m.timestamp ? ` (${m.timestamp})` : "";
+      const text =
+        m.text.length > 500 ? m.text.slice(0, 497) + "..." : m.text;
+      return `[MSG ${idx}] ${role}${ts}\n${text}\n---`;
+    })
+    .join("\n");
+}
+
+function formatMessagesForSummarization(
+  messages: ConversationMessage[],
+  truncateAssistant: boolean = false
+): string {
+  return messages
+    .map((m) => {
+      const role = m.role === "human" ? "Human" : "Assistant";
+      let text = m.text;
+      if (truncateAssistant && m.role === "assistant" && text.length > 1000) {
+        text = text.slice(0, 997) + "...";
+      }
+      const toolInfo =
+        m.toolCalls && m.toolCalls.length > 0
+          ? `\n[Tools used: ${m.toolCalls.map((t) => t.tool).join(", ")}]`
+          : "";
+      return `### ${role}\n\n${text}${toolInfo}`;
+    })
+    .join("\n\n---\n\n");
+}
+
+interface ChunkInfo {
+  messages: ConversationMessage[];
+  globalStartIndex: number;
+}
+
+function chunkMessages(
+  messages: ConversationMessage[],
+  maxTokens: number,
+  overlapTokens: number
+): ChunkInfo[] {
+  const totalTokens = messages.reduce(
+    (sum, m) => sum + estimateTokens(m.text),
+    0
+  );
+
+  // If fits in a single call, no chunking needed
+  if (totalTokens <= maxTokens) {
+    return [{ messages, globalStartIndex: 0 }];
+  }
+
+  const chunks: ChunkInfo[] = [];
+  let startIdx = 0;
+
+  while (startIdx < messages.length) {
+    let tokenCount = 0;
+    let endIdx = startIdx;
+
+    // Accumulate messages until we hit the chunk target
+    while (endIdx < messages.length && tokenCount < maxTokens) {
+      tokenCount += estimateTokens(messages[endIdx].text);
+      endIdx++;
+    }
+
+    chunks.push({
+      messages: messages.slice(startIdx, endIdx),
+      globalStartIndex: startIdx,
+    });
+
+    if (endIdx >= messages.length) break;
+
+    // Calculate overlap: go back by overlapTokens worth of messages
+    let overlapCount = 0;
+    let overlapIdx = endIdx;
+    while (overlapIdx > startIdx && overlapCount < overlapTokens) {
+      overlapIdx--;
+      overlapCount += estimateTokens(messages[overlapIdx].text);
+    }
+    startIdx = overlapIdx;
+  }
+
+  return chunks;
+}
+
+interface RawBoundary {
+  name: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+function validateAndRepairBoundaries(
+  boundaries: RawBoundary[],
+  totalMessages: number
+): RawBoundary[] {
+  if (boundaries.length === 0) {
+    return [{ name: "Full Session", startIndex: 0, endIndex: totalMessages - 1 }];
+  }
+
+  // Sort by startIndex
+  boundaries.sort((a, b) => a.startIndex - b.startIndex);
+
+  // Fix first topic start
+  boundaries[0].startIndex = 0;
+
+  // Fix last topic end
+  boundaries[boundaries.length - 1].endIndex = totalMessages - 1;
+
+  // Fix gaps and overlaps
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const current = boundaries[i];
+    const next = boundaries[i + 1];
+
+    if (current.endIndex + 1 < next.startIndex) {
+      // Gap — extend current to fill
+      current.endIndex = next.startIndex - 1;
+    } else if (current.endIndex >= next.startIndex) {
+      // Overlap — trim current
+      current.endIndex = next.startIndex - 1;
+    }
+  }
+
+  // Remove any degenerate topics (start > end after repairs)
+  return boundaries.filter((b) => b.startIndex <= b.endIndex);
+}
+
+function mergeBoundaries(
+  chunkResults: Array<{ boundaries: RawBoundary[]; globalStartIndex: number }>,
+  totalMessages: number
+): RawBoundary[] {
+  if (chunkResults.length === 1) {
+    return validateAndRepairBoundaries(chunkResults[0].boundaries, totalMessages);
+  }
+
+  // Convert local indices to global
+  const allBoundaries: RawBoundary[] = [];
+  for (const chunk of chunkResults) {
+    for (const b of chunk.boundaries) {
+      allBoundaries.push({
+        name: b.name,
+        startIndex: b.startIndex + chunk.globalStartIndex,
+        endIndex: b.endIndex + chunk.globalStartIndex,
+      });
+    }
+  }
+
+  // Sort and deduplicate boundaries that are within 2 messages of each other
+  allBoundaries.sort((a, b) => a.startIndex - b.startIndex);
+  const deduped: RawBoundary[] = [];
+  for (const b of allBoundaries) {
+    const prev = deduped[deduped.length - 1];
+    if (prev && Math.abs(prev.startIndex - b.startIndex) <= 2) {
+      // Merge: keep the one with the later endIndex (more complete)
+      if (b.endIndex > prev.endIndex) {
+        prev.endIndex = b.endIndex;
+        prev.name = b.name;
+      }
+    } else {
+      deduped.push({ ...b });
+    }
+  }
+
+  return validateAndRepairBoundaries(deduped, totalMessages);
+}
+
+async function callClaudeJSON<T>(
+  anthropic: InstanceType<typeof import("@anthropic-ai/sdk").default>,
+  prompt: string,
+  maxTokens: number
+): Promise<T> {
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: maxTokens,
+    temperature: 0,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("No text response from Claude API");
+  }
+
+  try {
+    return JSON.parse(textBlock.text) as T;
+  } catch {
+    // Retry with stricter prompt
+    const retryResponse = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: maxTokens,
+      temperature: 0,
+      messages: [
+        { role: "user", content: prompt + "\n\nRemember: respond with ONLY valid JSON, no other text." },
+      ],
+    });
+    const retryBlock = retryResponse.content.find((b) => b.type === "text");
+    if (!retryBlock || retryBlock.type !== "text") {
+      throw new Error("No text response from Claude API on retry");
+    }
+    // Try to extract JSON from response (handle markdown code blocks)
+    const text = retryBlock.text.trim();
+    const jsonMatch = text.match(/\[[\s\S]*\]/) || text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]) as T;
+    }
+    return JSON.parse(text) as T;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Topic Segmentation Prompt Templates
+// ---------------------------------------------------------------------------
+
+const BOUNDARY_DETECTION_PROMPT = `You are analyzing a Claude Code conversation transcript to identify distinct topic boundaries.
+
+A "topic" is a coherent unit of work — a feature being developed, a bug being fixed, a refactor, a brainstorming session, a design discussion, etc. Topics change when the user shifts to working on something meaningfully different.
+
+DO NOT split a topic just because the conversation has back-and-forth — a long discussion about the same feature is ONE topic. Only split when the actual subject of work changes.
+
+Here is the conversation (message indices in brackets):
+
+{{content}}
+
+Return a JSON array of topic segments. Each segment has:
+- name: Short descriptive name (2-5 words)
+- startIndex: Index of first message in this topic
+- endIndex: Index of last message in this topic (inclusive)
+
+Every message must belong to exactly one topic. Topics must be contiguous and non-overlapping.
+The first topic starts at index 0 and the last topic ends at the last message index.
+
+Respond with ONLY the JSON array, no other text.`;
+
+const TOPIC_SUMMARY_PROMPT = `You are analyzing a segment of a Claude Code conversation about a specific topic.
+
+Topic name (preliminary): {{topicName}}
+
+Here is the conversation segment:
+
+{{content}}
+
+Analyze this conversation and provide:
+
+1. name: A refined short name for this topic (2-5 words)
+2. title: A one-sentence title describing what was accomplished or discussed
+3. stage: The development stage this topic reached. Must be one of:
+   - "brainstorming" — Exploring ideas, discussing approaches, no concrete artifacts yet
+   - "design" — A design document, spec, or architecture has been created or discussed
+   - "planning" — A detailed implementation plan has been created
+   - "implemented" — Code has been written and the feature/fix is functional
+   - "verified" — Implementation has been verified, tested, or merged to main
+4. summary: A paragraph (3-5 sentences) summarizing what happened in this topic
+
+Respond with ONLY a JSON object with these four fields, no other text.`;
+
+const SESSION_TITLE_PROMPT = `Here are the topics discussed in a Claude Code session:
+
+{{content}}
+
+Generate a single concise title (under 80 characters) for this entire session that captures the main work done. If there was one dominant topic, focus on that. If multiple equally important topics, mention the key ones.
+
+Respond with ONLY the title text, no quotes, no other text.`;
+
+// ---------------------------------------------------------------------------
 // Parser registry
 // ---------------------------------------------------------------------------
 
@@ -379,5 +658,153 @@ export const runExtractor = internalAction({
     }
 
     throw new Error(`Unknown extractor type: ${extractor.type}`);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// runTopicSegmentation internalAction
+// ---------------------------------------------------------------------------
+
+export const runTopicSegmentation = internalAction({
+  args: {
+    rawFileId: v.id("rawFiles"),
+  },
+  returns: v.object({ entryCount: v.number() }),
+  handler: async (ctx, { rawFileId }) => {
+    // 1. Fetch rawFile
+    const rawFile = await ctx.runQuery(internal.rawFiles.getById, { id: rawFileId });
+    if (!rawFile) throw new Error(`rawFile not found: ${rawFileId}`);
+
+    // 2. Fetch the project-work-summary knowledgeEntry
+    const entries = await ctx.runQuery(internal.knowledgeEntries.getByRawFileAndExtractor, {
+      rawFileId,
+      extractorName: "project-work-summary",
+    });
+    if (!entries) {
+      throw new Error("No project-work-summary entry found. Run mechanical extraction first.");
+    }
+
+    // 3. Parse content into ConversationMessage[]
+    let messages: ConversationMessage[];
+    try {
+      messages = JSON.parse(entries.content) as ConversationMessage[];
+    } catch {
+      throw new Error("Failed to parse conversation messages from content field");
+    }
+
+    if (messages.length === 0) {
+      throw new Error("No messages found in conversation");
+    }
+
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const anthropic = new Anthropic();
+
+    // 4. Pass 1: Topic Boundary Detection
+    const chunks = chunkMessages(messages, SINGLE_CALL_TOKEN_LIMIT, CHUNK_OVERLAP_TOKENS);
+    const chunkResults: Array<{ boundaries: RawBoundary[]; globalStartIndex: number }> = [];
+
+    for (const chunk of chunks) {
+      const formatted = formatMessagesForBoundaryDetection(
+        chunk.messages,
+        chunk.globalStartIndex
+      );
+      const prompt = BOUNDARY_DETECTION_PROMPT.replace("{{content}}", formatted);
+      const boundaries = await callClaudeJSON<RawBoundary[]>(anthropic, prompt, 4096);
+
+      // The prompt shows global message indices ([MSG 0], [MSG 1], ...) via
+      // formatMessagesForBoundaryDetection's globalStartIndex parameter, so Claude
+      // returns global indices directly. We set globalStartIndex: 0 here to avoid
+      // double-offsetting in mergeBoundaries (which adds globalStartIndex to each index).
+      chunkResults.push({ boundaries, globalStartIndex: 0 });
+    }
+
+    const topicBoundaries = mergeBoundaries(chunkResults, messages.length);
+
+    // 5. Pass 2: Per-topic Summarization
+    const topics: Array<{
+      id: number;
+      name: string;
+      title: string;
+      stage: string;
+      summary: string;
+      messageRange: { start: number; end: number };
+    }> = [];
+
+    for (let i = 0; i < topicBoundaries.length; i++) {
+      const boundary = topicBoundaries[i];
+      const topicMessages = messages.slice(boundary.startIndex, boundary.endIndex + 1);
+
+      // Check if topic is too large — truncate assistant messages if so
+      const topicTokens = topicMessages.reduce(
+        (sum, m) => sum + estimateTokens(m.text),
+        0
+      );
+      const shouldTruncate = topicTokens > LARGE_TOPIC_TOKEN_LIMIT;
+
+      const formatted = formatMessagesForSummarization(topicMessages, shouldTruncate);
+      const prompt = TOPIC_SUMMARY_PROMPT
+        .replace("{{topicName}}", boundary.name)
+        .replace("{{content}}", formatted);
+
+      const result = await callClaudeJSON<{
+        name: string;
+        title: string;
+        stage: string;
+        summary: string;
+      }>(anthropic, prompt, 2048);
+
+      // Validate stage
+      const validStages = ["brainstorming", "design", "planning", "implemented", "verified"];
+      const stage = validStages.includes(result.stage) ? result.stage : "brainstorming";
+
+      topics.push({
+        id: i + 1,
+        name: result.name,
+        title: result.title,
+        stage,
+        summary: result.summary,
+        messageRange: { start: boundary.startIndex, end: boundary.endIndex },
+      });
+    }
+
+    // 6. Pass 3: Session Title Synthesis
+    const topicSummaries = topics
+      .map((t) => `Topic ${t.id}: ${t.title}\n${t.summary}`)
+      .join("\n\n");
+    const titlePrompt = SESSION_TITLE_PROMPT.replace("{{content}}", topicSummaries);
+
+    const titleResponse = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 256,
+      temperature: 0,
+      messages: [{ role: "user", content: titlePrompt }],
+    });
+    const titleBlock = titleResponse.content.find((b) => b.type === "text");
+    const sessionTitle = titleBlock && titleBlock.type === "text"
+      ? titleBlock.text.trim().replace(/^["']|["']$/g, "").slice(0, 80)
+      : topics[0]?.title ?? "Claude Code Session";
+
+    // 7. Store results
+    const topicSegmentation = {
+      sessionTitle,
+      extractionModel: "claude-sonnet-4-20250514",
+      extractedAt: Date.now(),
+      pipelineVersion: "1.0",
+      topics,
+    };
+
+    await ctx.runMutation(internal.knowledgeEntries.patchTopicSegmentation, {
+      rawFileId,
+      extractorName: "project-work-summary",
+      topicSegmentation,
+    });
+
+    // 8. Update rawFile.displayName if not user-set
+    await ctx.runMutation(internal.rawFiles.setDisplayName, {
+      rawFileId,
+      displayName: sessionTitle,
+    });
+
+    return { entryCount: topics.length };
   },
 });

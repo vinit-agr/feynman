@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 
 export const list = query({
   args: {
@@ -298,5 +298,21 @@ export const patchTopicSegmentation = internalMutation({
     if (!entry) throw new Error("Knowledge entry not found for topic segmentation");
     await ctx.db.patch(entry._id, { topicSegmentation: args.topicSegmentation });
     return null;
+  },
+});
+
+export const getByRawFileAndExtractor = internalQuery({
+  args: {
+    rawFileId: v.id("rawFiles"),
+    extractorName: v.string(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("knowledgeEntries")
+      .withIndex("by_rawFile_extractor", (q) =>
+        q.eq("rawFileId", args.rawFileId).eq("extractorName", args.extractorName)
+      )
+      .unique();
   },
 });

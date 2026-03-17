@@ -214,11 +214,13 @@ function parseClaudeStripTools(rawText: string, projectPath?: string, projectNam
   // Derive title from first meaningful human message
   const title = deriveTitle(messages);
 
-  // Serialize to JSON, truncating at message boundaries if over 50K
+  // Serialize to JSON, truncating at message boundaries if over 900KB
+  // (Convex documents have a 1MB limit; 900KB leaves room for other fields)
+  const MAX_CONTENT_BYTES = 900_000;
   let content: string;
   let truncatedMessages = messages;
   content = JSON.stringify(truncatedMessages);
-  while (content.length > 50_000 && truncatedMessages.length > 1) {
+  while (content.length > MAX_CONTENT_BYTES && truncatedMessages.length > 1) {
     truncatedMessages = truncatedMessages.slice(0, -1);
     content = JSON.stringify(truncatedMessages);
   }

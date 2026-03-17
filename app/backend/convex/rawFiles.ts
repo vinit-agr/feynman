@@ -450,3 +450,77 @@ export const deleteStorageFile = mutation({
     return null;
   },
 });
+
+export const setDisplayName = internalMutation({
+  args: {
+    rawFileId: v.id("rawFiles"),
+    displayName: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const rawFile = await ctx.db.get(args.rawFileId);
+    if (!rawFile) return null;
+    // Only set if user hasn't manually named it
+    if (!rawFile.displayName) {
+      await ctx.db.patch(args.rawFileId, { displayName: args.displayName });
+    }
+    return null;
+  },
+});
+
+export const getByIdPublic = query({
+  args: {
+    id: v.id("rawFiles"),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+export const triggerTopicSegmentation = mutation({
+  args: {
+    rawFileId: v.id("rawFiles"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const rawFile = await ctx.db.get(args.rawFileId);
+    if (!rawFile) throw new Error("Raw file not found");
+
+    // Guard against concurrent runs
+    const existing = (rawFile.extractionResults ?? []).find(
+      (r) => r.extractorName === "topic-segmentation"
+    );
+    if (existing && (existing.status === "pending" || existing.status === "running")) {
+      return null;
+    }
+
+    // Add/reset "topic-segmentation" in extractionResults
+    const results = [...(rawFile.extractionResults ?? [])];
+    const idx = results.findIndex((r) => r.extractorName === "topic-segmentation");
+    const entry = {
+      extractorName: "topic-segmentation",
+      status: "pending" as const,
+      entryCount: 0,
+    };
+    if (idx === -1) results.push(entry);
+    else results[idx] = entry;
+
+    await ctx.db.patch(args.rawFileId, {
+      status: "extracting",
+      extractionResults: results,
+    });
+
+    await extractionPool.enqueueAction(
+      ctx,
+      internal.extraction.runTopicSegmentation,
+      { rawFileId: args.rawFileId },
+      {
+        onComplete: internal.extractionPool.handleExtractionComplete,
+        context: { rawFileId: args.rawFileId, extractorName: "topic-segmentation" },
+      }
+    );
+
+    return null;
+  },
+});

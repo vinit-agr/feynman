@@ -280,3 +280,23 @@ export const upsertFromExtractor = internalMutation({
     return await ctx.db.insert("knowledgeEntries", args);
   },
 });
+
+export const patchTopicSegmentation = internalMutation({
+  args: {
+    rawFileId: v.id("rawFiles"),
+    extractorName: v.string(),
+    topicSegmentation: v.any(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const entry = await ctx.db
+      .query("knowledgeEntries")
+      .withIndex("by_rawFile_extractor", (q) =>
+        q.eq("rawFileId", args.rawFileId).eq("extractorName", args.extractorName)
+      )
+      .unique();
+    if (!entry) throw new Error("Knowledge entry not found for topic segmentation");
+    await ctx.db.patch(entry._id, { topicSegmentation: args.topicSegmentation });
+    return null;
+  },
+});

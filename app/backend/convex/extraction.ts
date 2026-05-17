@@ -442,8 +442,23 @@ async function callClaudeJSON<T>(
     throw new Error("No text response from Claude API");
   }
 
+  const extractJSON = (raw: string): T => {
+    // Strip markdown code fences if present
+    const stripped = raw.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+    try {
+      return JSON.parse(stripped) as T;
+    } catch {
+      // Try to extract the first JSON array or object from the text
+      const jsonMatch = stripped.match(/\[[\s\S]*\]/) || stripped.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]) as T;
+      }
+      throw new Error(`Failed to parse JSON from response: ${stripped.slice(0, 200)}`);
+    }
+  };
+
   try {
-    return JSON.parse(textBlock.text) as T;
+    return extractJSON(textBlock.text);
   } catch {
     // Retry with stricter prompt
     const retryResponse = await anthropic.messages.create({
@@ -451,20 +466,14 @@ async function callClaudeJSON<T>(
       max_tokens: maxTokens,
       temperature: 0,
       messages: [
-        { role: "user", content: prompt + "\n\nRemember: respond with ONLY valid JSON, no other text." },
+        { role: "user", content: prompt + "\n\nRemember: respond with ONLY valid JSON, no other text. No markdown code fences." },
       ],
     });
     const retryBlock = retryResponse.content.find((b) => b.type === "text");
     if (!retryBlock || retryBlock.type !== "text") {
       throw new Error("No text response from Claude API on retry");
     }
-    // Try to extract JSON from response (handle markdown code blocks)
-    const text = retryBlock.text.trim();
-    const jsonMatch = text.match(/\[[\s\S]*\]/) || text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]) as T;
-    }
-    return JSON.parse(text) as T;
+    return extractJSON(retryBlock.text);
   }
 }
 
